@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  FOREIGNER
+}
+
+enum BusinessType {
+  HOTEL
+  HOMESTAY
+  RESTAURANT
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         Role
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  businesses   Business[]
+  bookings     Booking[]
+  reviews      Review[]
+}
+
+model Business {
+  id          String       @id @default(uuid())
+  ownerId     String
+  name        String
+  type        BusinessType
+  description String?
+  address     String
+  latitude    Float?
+  longitude   Float?
+  imageUrls   String[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  listings    Listing[]
+}
+
+model Listing {
+  id            String   @id @default(uuid())
+  businessId    String
+  name          String
+  description   String?
+  pricePerNight Float
+  maxGuests     Int      @default(1)
+  amenities     String[]
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  bookings      Booking[]
+  blockedDates  BlockedDate[]
+}
+
+model BlockedDate {
+  id        String   @id @default(uuid())
+  listingId String
+  startDate DateTime
+  endDate   DateTime
+  reason    String?
+
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, startDate, endDate])
+}
+
+model Booking {
+  id            String        @id @default(uuid())
+  foreignerId   String
+  listingId     String
+  checkIn       DateTime
+  checkOut      DateTime
+  totalPrice    Float
+  status        BookingStatus @default(PENDING)
+  paymentStatus PaymentStatus @default(UNPAID)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  foreigner     User      @relation(fields: [foreignerId], references: [id])
+  listing       Listing   @relation(fields: [listingId], references: [id])
+  review        Review?
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  bookingId String   @unique
+  authorId  String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
