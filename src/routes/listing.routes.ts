@@ -11,6 +11,7 @@ import { authenticate, authorize } from '../middleware/auth.middleware';
 const router = Router();
 
 // Public Traveler Routes
+router.get('/', searchListings);
 router.get('/search', searchListings);
 router.get('/business/:businessId', getListingsByBusiness);
 
