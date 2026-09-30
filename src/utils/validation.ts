@@ -57,8 +57,8 @@ export const createBookingSchema = z
   });
 
 export const updateBookingStatusSchema = z.object({
-  status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED']),
-  paymentStatus: z.enum(['UNPAID', 'PAID', 'REFUNDED']).optional(),
+  status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'DECLINED', 'NO_SHOW']),
+  paymentStatus: z.string().optional(),
 });
 
 // --- BLOCKED DATE SCHEMA ---

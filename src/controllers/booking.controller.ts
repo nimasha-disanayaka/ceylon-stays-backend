@@ -350,12 +350,24 @@ export const updateBookingStatus = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    const isOwner = req.user && booking.listing.business.ownerId === req.user.userId;
-    const isForeigner = req.user && booking.foreignerId === req.user.userId;
+    const { status, paymentStatus } = validationResult.data;
+
+    // Determine target paymentStatus if not explicitly supplied
+    let targetPaymentStatus = paymentStatus;
+    if (!targetPaymentStatus) {
+      if (status === 'CONFIRMED' || status === 'COMPLETED' || status === 'NO_SHOW') {
+        targetPaymentStatus = 'CAPTURED';
+      } else if (status === 'DECLINED') {
+        targetPaymentStatus = 'RELEASED';
+      }
+    }
 
     const updatedBooking = await prisma.booking.update({
       where: { id },
-      data: validationResult.data,
+      data: {
+        status: status as any,
+        ...(targetPaymentStatus && { paymentStatus: targetPaymentStatus as any }),
+      },
     });
 
     return res.status(200).json({
