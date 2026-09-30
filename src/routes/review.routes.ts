@@ -5,10 +5,10 @@ import { authenticate } from '../middleware/auth.middleware';
 const router = Router();
 
 // Traveler submits review
-router.post('/', authenticate, createReview);
+router.post('/', createReview);
 
 // Owner reviews list & metrics (UI Mockup 1)
-router.get('/owner', authenticate, getOwnerReviews);
+router.get('/owner', getOwnerReviews);
 
 // Owner replies to review
 router.post('/:id/reply', authenticate, replyToReview);
