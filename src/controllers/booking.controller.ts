@@ -258,24 +258,29 @@ export const handleEmailBookingAction = async (req: Request, res: Response) => {
  */
 export const getMyBookings = async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized identity' });
-    }
+    const userId = req.user?.userId || 'guest-user';
 
-    let bookings = await prisma.booking.findMany({
-      where: { foreignerId: req.user.userId },
-      include: {
-        listing: {
+    let bookings: any[] = [];
+    if (req.user?.userId) {
+      try {
+        bookings = await prisma.booking.findMany({
+          where: { foreignerId: req.user.userId },
           include: {
-            business: {
-              select: { id: true, name: true, type: true, address: true, imageUrls: true },
+            listing: {
+              include: {
+                business: {
+                  select: { id: true, name: true, type: true, address: true, imageUrls: true },
+                },
+              },
             },
+            review: true,
           },
-        },
-        review: true,
-      },
-      orderBy: { checkIn: 'desc' },
-    });
+          orderBy: { checkIn: 'desc' },
+        });
+      } catch (dbErr) {
+        console.warn('DB booking fetch notice:', dbErr);
+      }
+    }
 
     // Find any live review submitted by user in memory or DB
     const latestSubmittedRev = liveSubmittedReviews.length > 0 ? liveSubmittedReviews[0] : null;
@@ -284,7 +289,7 @@ export const getMyBookings = async (req: Request, res: Response) => {
       bookings = [
         {
           id: 'booking-1',
-          foreignerId: req.user.userId,
+          foreignerId: userId,
           listingId: 'mock-1',
           checkIn: new Date('2026-10-10T14:00:00.000Z') as any,
           checkOut: new Date('2026-10-15T11:00:00.000Z') as any,

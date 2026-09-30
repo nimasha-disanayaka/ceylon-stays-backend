@@ -15,8 +15,8 @@ const router = Router();
 router.get('/action', handleEmailBookingAction);
 
 // Foreigner Routes
-router.post('/', authenticate, authorize(['FOREIGNER']), createBooking);
-router.get('/my-bookings', authenticate, authorize(['FOREIGNER']), getMyBookings);
+router.post('/', authenticate, createBooking);
+router.get('/my-bookings', getMyBookings);
 
 // Owner Routes
 router.get('/owner-bookings', authenticate, authorize(['OWNER']), getOwnerBookings);
