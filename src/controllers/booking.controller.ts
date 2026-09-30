@@ -268,7 +268,7 @@ export const getMyBookings = async (req: Request, res: Response) => {
       foreignerId = traveler ? traveler.id : 'user-traveler-1';
     }
 
-    let bookings = await prisma.booking.findMany({
+    const bookings = await prisma.booking.findMany({
       where: foreignerId ? { foreignerId } : {},
       include: {
         listing: {
@@ -281,24 +281,6 @@ export const getMyBookings = async (req: Request, res: Response) => {
         review: true,
       },
       orderBy: { createdAt: 'desc' },
-    });
-
-    // Attach latest live review if available
-    const latestSubmittedRev = liveSubmittedReviews.length > 0 ? liveSubmittedReviews[0] : null;
-
-    bookings = bookings.map((b: any) => {
-      if (!b.review && latestSubmittedRev) {
-        return {
-          ...b,
-          review: {
-            id: latestSubmittedRev.id,
-            rating: latestSubmittedRev.rating,
-            comment: latestSubmittedRev.comment,
-            reply: latestSubmittedRev.reply || null,
-          },
-        };
-      }
-      return b;
     });
 
     return res.status(200).json({ bookings });
