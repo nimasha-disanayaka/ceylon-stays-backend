@@ -47,9 +47,9 @@ export const updateListingSchema = createListingSchema.partial().omit({ business
 // --- BOOKING SCHEMAS ---
 export const createBookingSchema = z
   .object({
-    listingId: z.string().uuid({ message: 'Valid Listing ID is required' }),
-    checkIn: z.string().datetime({ message: 'Valid Check-in ISO Date string is required' }),
-    checkOut: z.string().datetime({ message: 'Valid Check-out ISO Date string is required' }),
+    listingId: z.string().min(1, { message: 'Listing ID is required' }),
+    checkIn: z.string().min(1, { message: 'Valid Check-in Date string is required' }),
+    checkOut: z.string().min(1, { message: 'Valid Check-out Date string is required' }),
   })
   .refine((data) => new Date(data.checkOut) > new Date(data.checkIn), {
     message: 'Check-out date must be strictly after Check-in date',
