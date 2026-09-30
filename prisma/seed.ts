@@ -10,11 +10,11 @@ async function main() {
 
   // 1. Create or update main owner account
   const owner = await prisma.user.upsert({
-    where: { email: 'ghhjjjjj@gmail.com' },
+    where: { email: 'nimuu1449disanayaka@gmail.com' },
     update: { passwordHash },
     create: {
-      email: 'ghhjjjjj@gmail.com',
-      name: 'nimu',
+      email: 'nimuu1449disanayaka@gmail.com',
+      name: 'Nimasha Disanayaka',
       passwordHash,
       phone: '+94771234567',
       role: 'OWNER',
