@@ -7,10 +7,10 @@ let liveSubmittedReviews: any[] = [];
 
 // Create a guest review
 export const createReview = async (req: AuthRequest, res: Response) => {
-  const { bookingId, rating, comment } = req.body || {};
+  const { bookingId, rating, comment, authorName: bodyAuthorName } = req.body || {};
   try {
     const authorId = req.user?.userId;
-    const authorName = req.user?.name || 'Alexander Wright';
+    const authorName = bodyAuthorName || req.user?.name || 'John M.';
 
     if (!rating) {
       return res.status(400).json({ error: 'rating is required' });
@@ -60,15 +60,16 @@ export const createReview = async (req: AuthRequest, res: Response) => {
     }
 
     // Store in liveSubmittedReviews list so it immediately appears on owner review page
-    const nameParts = (authorName || 'Alexander Wright').split(' ');
+    const finalAuthorName = (authorName || 'John M.').trim();
+    const nameParts = finalAuthorName.split(' ');
     const initials = nameParts.length > 1
       ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-      : `${authorName[0]}W`.toUpperCase();
+      : `${finalAuthorName[0]}${finalAuthorName[1] || 'M'}`.toUpperCase();
 
     const newLiveReview = {
       id: reviewResult?.id || `rev-live-${Date.now()}`,
       initials,
-      authorName,
+      authorName: finalAuthorName,
       businessName: targetBooking?.listing?.business?.name || 'Mirissa Luxury Hotel',
       rating: Number(rating),
       comment: comment || 'Good',
@@ -83,11 +84,17 @@ export const createReview = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('Error creating review:', error);
 
+    const finalAuthorName = (bodyAuthorName || req.user?.name || 'John M.').trim();
+    const nameParts = finalAuthorName.split(' ');
+    const initials = nameParts.length > 1
+      ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
+      : `${finalAuthorName[0]}${finalAuthorName[1] || 'M'}`.toUpperCase();
+
     // Fallback store
     const fallbackReview = {
       id: `rev-fallback-${Date.now()}`,
-      initials: 'AW',
-      authorName: 'Alexander Wright',
+      initials,
+      authorName: finalAuthorName,
       businessName: 'Mirissa Luxury Hotel',
       rating: Number(rating) || 5,
       comment: comment || 'Good',
@@ -142,11 +149,11 @@ export const getOwnerReviews = async (req: AuthRequest, res: Response) => {
       });
 
       dbReviewsFormatted = dbReviews.map((r) => {
-        const authorName = r.booking?.foreigner?.name || 'Alexander Wright';
-        const nameParts = authorName.split(' ');
+        const authorName = r.booking?.foreigner?.name || 'John M.';
+        const nameParts = authorName.trim().split(' ');
         const initials = nameParts.length > 1
           ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-          : `${authorName[0]}W`.toUpperCase();
+          : `${authorName[0]}${authorName[1] || 'M'}`.toUpperCase();
 
         return {
           id: r.id,
