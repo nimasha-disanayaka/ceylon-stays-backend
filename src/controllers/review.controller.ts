@@ -3,7 +3,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import prisma from '../config/db';
 
 // Global in-memory storage fallback for newly submitted mobile reviews to guarantee instant live update
-let liveSubmittedReviews: any[] = [];
+export let liveSubmittedReviews: any[] = [];
 
 // Create a guest review
 export const createReview = async (req: AuthRequest, res: Response) => {
