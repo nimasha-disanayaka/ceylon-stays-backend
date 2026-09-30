@@ -1,6 +1,5 @@
-import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth.middleware';
-import prisma from '../config/db';
+import { Request, Response } from 'express';
+import { prisma } from '../config/db';
 
 // Global in-memory storage fallback for newly submitted mobile reviews to guarantee instant live update
 export let liveSubmittedReviews: any[] = [
@@ -17,11 +16,11 @@ export let liveSubmittedReviews: any[] = [
 ];
 
 // Create a guest review
-export const createReview = async (req: AuthRequest, res: Response) => {
+export const createReview = async (req: Request, res: Response) => {
   const { bookingId, rating, comment, authorName: bodyAuthorName } = req.body || {};
   try {
     const authorId = req.user?.userId;
-    const authorName = bodyAuthorName || req.user?.name || 'John M.';
+    const authorName = bodyAuthorName || (req.user as any)?.name || 'John M.';
 
     if (!rating) {
       return res.status(400).json({ error: 'rating is required' });
@@ -95,7 +94,7 @@ export const createReview = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     console.error('Error creating review:', error);
 
-    const finalAuthorName = (bodyAuthorName || req.user?.name || 'John M.').trim();
+    const finalAuthorName = (bodyAuthorName || (req.user as any)?.name || 'John M.').trim();
     const nameParts = finalAuthorName.split(' ');
     const initials = nameParts.length > 1
       ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
@@ -119,7 +118,7 @@ export const createReview = async (req: AuthRequest, res: Response) => {
 };
 
 // Get reviews for property owner dashboard (matches UI mockup 1)
-export const getOwnerReviews = async (req: AuthRequest, res: Response) => {
+export const getOwnerReviews = async (req: Request, res: Response) => {
   try {
     // Baseline mock reviews matching Mockup 1 exactly
     const baseMockReviews = [
@@ -159,7 +158,7 @@ export const getOwnerReviews = async (req: AuthRequest, res: Response) => {
         orderBy: { createdAt: 'desc' },
       });
 
-      dbReviewsFormatted = dbReviews.map((r) => {
+      dbReviewsFormatted = dbReviews.map((r: any) => {
         const authorName = r.booking?.foreigner?.name || 'John M.';
         const nameParts = authorName.trim().split(' ');
         const initials = nameParts.length > 1
@@ -210,7 +209,7 @@ export const getOwnerReviews = async (req: AuthRequest, res: Response) => {
 };
 
 // Owner reply to a review
-export const replyToReview = async (req: AuthRequest, res: Response) => {
+export const replyToReview = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { reply } = req.body;

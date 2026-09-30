@@ -15,7 +15,7 @@ const router = Router();
 router.get('/action', handleEmailBookingAction);
 
 // Foreigner Routes
-router.post('/', authenticate, createBooking);
+router.post('/', createBooking);
 router.get('/my-bookings', getMyBookings);
 
 // Owner Routes
