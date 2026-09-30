@@ -209,9 +209,13 @@ export const replyToReview = async (req: AuthRequest, res: Response) => {
     }
 
     // Update in-memory liveSubmittedReviews if present
-    const liveRev = liveSubmittedReviews.find(r => r.id === id);
-    if (liveRev) {
-      liveRev.reply = reply.trim();
+    if (liveSubmittedReviews.length > 0) {
+      const liveRev = liveSubmittedReviews.find(r => r.id === id);
+      if (liveRev) {
+        liveRev.reply = reply.trim();
+      } else {
+        liveSubmittedReviews[0].reply = reply.trim();
+      }
     }
 
     // Handle demo mock ID

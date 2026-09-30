@@ -314,6 +314,7 @@ export const getMyBookings = async (req: Request, res: Response) => {
             id: latestSubmittedRev.id,
             rating: latestSubmittedRev.rating,
             comment: latestSubmittedRev.comment,
+            reply: latestSubmittedRev.reply || null,
           } : null,
         } as any,
       ];
@@ -326,6 +327,7 @@ export const getMyBookings = async (req: Request, res: Response) => {
               id: latestSubmittedRev.id,
               rating: latestSubmittedRev.rating,
               comment: latestSubmittedRev.comment,
+              reply: latestSubmittedRev.reply || null,
             },
           };
         }
