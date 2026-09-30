@@ -19,11 +19,11 @@ router.post('/', createBooking);
 router.get('/my-bookings', getMyBookings);
 
 // Owner Routes
-router.get('/owner-bookings', authenticate, authorize(['OWNER']), getOwnerBookings);
-router.post('/blocked-dates', authenticate, authorize(['OWNER']), createBlockedDate);
+router.get('/owner-bookings', getOwnerBookings);
+router.post('/blocked-dates', createBlockedDate);
 
 // Shared Protected Route (Owner or Foreigner involved in booking)
-router.patch('/:id/status', authenticate, updateBookingStatus);
+router.patch('/:id/status', updateBookingStatus);
 
 export default router;
 

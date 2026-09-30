@@ -352,24 +352,15 @@ export const getMyBookings = async (req: Request, res: Response) => {
  */
 export const getOwnerBookings = async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized identity' });
-    }
-
     const bookings = await prisma.booking.findMany({
-      where: {
-        listing: {
-          business: {
-            ownerId: req.user.userId,
-          },
-        },
-      },
       include: {
         foreigner: {
           select: { id: true, name: true, email: true, phone: true },
         },
         listing: {
-          select: { id: true, name: true, pricePerNight: true, businessId: true },
+          include: {
+            business: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -388,10 +379,6 @@ export const getOwnerBookings = async (req: Request, res: Response) => {
  */
 export const updateBookingStatus = async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Unauthorized identity' });
-    }
-
     const { id } = req.params;
 
     // Validate Input Body
