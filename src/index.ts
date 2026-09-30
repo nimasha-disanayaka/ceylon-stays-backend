@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.routes';
 import businessRoutes from './routes/business.routes';
 import listingRoutes from './routes/listing.routes';
 import bookingRoutes from './routes/booking.routes';
+import reviewRoutes from './routes/review.routes';
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/businesses', businessRoutes);
 app.use('/api/listings', listingRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
