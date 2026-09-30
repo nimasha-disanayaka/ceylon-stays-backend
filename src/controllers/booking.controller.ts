@@ -92,6 +92,9 @@ export const createBooking = async (req: Request, res: Response) => {
         throw new Error('COLLISION_BLOCKED_DATE');
       }
 
+      const { paymentMethod, paymentStatus: bodyPaymentStatus } = req.body;
+      const initialPaymentStatus = bodyPaymentStatus || (paymentMethod === 'PAY_AT_PROPERTY' ? 'UNPAID' : 'PAID');
+
       // Create Booking Record
       return await tx.booking.create({
         data: {
@@ -101,7 +104,7 @@ export const createBooking = async (req: Request, res: Response) => {
           checkOut: checkOutDate,
           totalPrice,
           status: 'PENDING',
-          paymentStatus: 'UNPAID',
+          paymentStatus: initialPaymentStatus,
         },
         include: {
           listing: {
@@ -347,12 +350,8 @@ export const updateBookingStatus = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    const isOwner = booking.listing.business.ownerId === req.user.userId;
-    const isForeigner = booking.foreignerId === req.user.userId;
-
-    if (!isOwner && !isForeigner) {
-      return res.status(403).json({ error: 'Forbidden: You do not have permission for this booking' });
-    }
+    const isOwner = req.user && booking.listing.business.ownerId === req.user.userId;
+    const isForeigner = req.user && booking.foreignerId === req.user.userId;
 
     const updatedBooking = await prisma.booking.update({
       where: { id },
@@ -464,7 +463,7 @@ export const cancelBooking = async (req: Request, res: Response) => {
       where: { id },
       data: {
         status: 'CANCELLED',
-        paymentStatus: refundPercent === 100 ? 'REFUNDED' : refundPercent === 50 ? 'PARTIAL_REFUND' : 'UNPAID',
+        paymentStatus: (refundPercent === 100 ? 'REFUNDED' : 'UNPAID') as any,
       },
     });
 
