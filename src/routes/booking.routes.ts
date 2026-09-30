@@ -6,6 +6,7 @@ import {
   updateBookingStatus,
   createBlockedDate,
   handleEmailBookingAction,
+  cancelBooking,
 } from '../controllers/booking.controller';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 
@@ -17,6 +18,9 @@ router.get('/action', handleEmailBookingAction);
 // Foreigner Routes
 router.post('/', createBooking);
 router.get('/my-bookings', getMyBookings);
+
+// Cancel Booking Route
+router.post('/:id/cancel', cancelBooking);
 
 // Owner Routes
 router.get('/owner-bookings', getOwnerBookings);

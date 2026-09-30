@@ -417,3 +417,70 @@ export const createBlockedDate = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
+
+/**
+ * @route POST /api/bookings/:id/cancel
+ * @desc  Cancel reservation with Moderate Policy refund calculation
+ */
+export const cancelBooking = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: { listing: true },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking reservation not found' });
+    }
+
+    if (booking.status === 'CANCELLED') {
+      return res.status(400).json({ error: 'Booking is already cancelled' });
+    }
+
+    const checkInDate = new Date(booking.checkIn);
+    const now = new Date();
+    const diffMs = checkInDate.getTime() - now.getTime();
+    const hoursUntilCheckIn = diffMs / (1000 * 60 * 60);
+
+    let refundPercent = 0;
+    let policyTier = 'NON_REFUNDABLE';
+    let policyDescription = 'Cancelled within 24 hours of check-in or after check-in';
+
+    if (hoursUntilCheckIn >= 120) {
+      refundPercent = 100;
+      policyTier = 'FULL_REFUND';
+      policyDescription = 'Cancelled 5+ days before check-in (100% full refund)';
+    } else if (hoursUntilCheckIn >= 24) {
+      refundPercent = 50;
+      policyTier = 'PARTIAL_REFUND';
+      policyDescription = 'Cancelled within 5 days of check-in (50% partial refund)';
+    }
+
+    const refundAmount = Math.round((booking.totalPrice * (refundPercent / 100)) * 100) / 100;
+
+    const updatedBooking = await prisma.booking.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        paymentStatus: refundPercent === 100 ? 'REFUNDED' : refundPercent === 50 ? 'PARTIAL_REFUND' : 'UNPAID',
+      },
+    });
+
+    return res.status(200).json({
+      message: 'Reservation cancelled successfully',
+      booking: updatedBooking,
+      cancellationSummary: {
+        hoursUntilCheckIn: Math.round(hoursUntilCheckIn),
+        refundPercent,
+        refundAmount,
+        policyTier,
+        policyDescription,
+      },
+    });
+  } catch (error) {
+    console.error('Cancel Booking Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
