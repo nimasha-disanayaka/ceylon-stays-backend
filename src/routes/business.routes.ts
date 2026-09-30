@@ -14,11 +14,11 @@ const router = Router();
 // Public Specific Routes
 router.get('/nearby', getNearbyBusinesses);
 
-// Protected Owner-Only Routes
-router.get('/my-businesses', authenticate, authorize(['OWNER']), getMyBusinesses);
-router.post('/', authenticate, authorize(['OWNER']), createBusiness);
-router.put('/:id', authenticate, authorize(['OWNER']), updateBusiness);
-router.delete('/:id', authenticate, authorize(['OWNER']), deleteBusiness);
+// Owner Routes
+router.get('/my-businesses', getMyBusinesses);
+router.post('/', createBusiness);
+router.put('/:id', updateBusiness);
+router.delete('/:id', deleteBusiness);
 
 // Public Parameter Route (MUST come last)
 router.get('/:id', getBusinessById);

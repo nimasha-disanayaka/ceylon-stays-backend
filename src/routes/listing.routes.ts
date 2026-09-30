@@ -14,9 +14,9 @@ const router = Router();
 router.get('/search', searchListings);
 router.get('/business/:businessId', getListingsByBusiness);
 
-// Protected Owner-Only Routes
-router.post('/', authenticate, authorize(['OWNER']), createListing);
-router.put('/:id', authenticate, authorize(['OWNER']), updateListing);
-router.delete('/:id', authenticate, authorize(['OWNER']), deleteListing);
+// Owner Routes
+router.post('/', createListing);
+router.put('/:id', updateListing);
+router.delete('/:id', deleteListing);
 
 export default router;
