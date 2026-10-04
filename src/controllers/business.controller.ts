@@ -200,23 +200,33 @@ export const createBusiness = async (req: Request, res: Response) => {
  */
 export const getMyBusinesses = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.userId || 'user-owner-1';
+    const userId = req.user?.userId;
 
     let dbBusinesses: any[] = [];
     try {
       dbBusinesses = await prisma.business.findMany({
-        where: { ownerId: userId },
+        where: userId ? { ownerId: userId } : undefined,
         include: {
           listings: true,
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      // If user-specific filter returned no records, fetch all DB businesses as fallback
+      if (dbBusinesses.length === 0) {
+        dbBusinesses = await prisma.business.findMany({
+          include: {
+            listings: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+      }
     } catch (dbErr) {
       console.warn('DB getMyBusinesses notice:', dbErr);
     }
 
     const map = new Map();
-    [...liveOwnerBusinesses, ...dbBusinesses].forEach((b) => {
+    [...dbBusinesses, ...liveOwnerBusinesses].forEach((b) => {
       if (!map.has(b.id)) {
         map.set(b.id, b);
       }
