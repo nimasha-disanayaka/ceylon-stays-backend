@@ -2,18 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 
 // Global in-memory storage fallback for newly submitted mobile reviews to guarantee instant live update
-export let liveSubmittedReviews: any[] = [
-  {
-    id: 'rev-live-default-1',
-    initials: 'JM',
-    authorName: 'John M.',
-    businessName: 'Mirissa Luxury Hotel',
-    rating: 5,
-    comment: 'Beautiful stay, walking distance to the beach, host was incredibly kind.',
-    reply: null,
-    createdAt: new Date(),
-  },
-];
+export let liveSubmittedReviews: any[] = [];
 
 // Create a guest review
 export const createReview = async (req: Request, res: Response) => {

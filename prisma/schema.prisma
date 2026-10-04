@@ -23,12 +23,18 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
   COMPLETED
+  DECLINED
+  NO_SHOW
 }
 
 enum PaymentStatus {
   UNPAID
   PAID
   REFUNDED
+  AUTHORIZED
+  CAPTURED
+  RELEASED
+  PARTIAL_REFUND
 }
 
 model User {
