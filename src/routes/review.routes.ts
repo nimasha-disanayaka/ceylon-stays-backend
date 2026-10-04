@@ -11,6 +11,6 @@ router.post('/', createReview);
 router.get('/owner', getOwnerReviews);
 
 // Owner replies to review
-router.post('/:id/reply', authenticate, replyToReview);
+router.post('/:id/reply', replyToReview);
 
 export default router;
