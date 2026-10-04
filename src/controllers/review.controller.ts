@@ -10,7 +10,7 @@ export let liveSubmittedReviews: any[] = [
     businessName: 'Mirissa Luxury Hotel',
     rating: 5,
     comment: 'Beautiful stay, walking distance to the beach, host was incredibly kind.',
-    reply: 'thnks',
+    reply: null,
     createdAt: new Date(),
   },
 ];
@@ -218,13 +218,11 @@ export const replyToReview = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Reply text is required' });
     }
 
-    // Update in-memory liveSubmittedReviews if present
+    // Update in-memory liveSubmittedReviews if present for matching ID
     if (liveSubmittedReviews.length > 0) {
       const liveRev = liveSubmittedReviews.find(r => r.id === id);
       if (liveRev) {
         liveRev.reply = reply.trim();
-      } else {
-        liveSubmittedReviews[0].reply = reply.trim();
       }
     }
 
