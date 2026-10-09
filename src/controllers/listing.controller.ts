@@ -135,6 +135,63 @@ export const searchListings = async (req: Request, res: Response) => {
 };
 
 /**
+ * @route GET /api/listings/:id/availability
+ * @desc  Public Availability API for Travelers to view booked/blocked date ranges
+ */
+export const getListingAvailability = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch confirmed or pending bookings for this listing
+    const bookings = await prisma.booking.findMany({
+      where: {
+        listingId: id,
+        status: { in: ['CONFIRMED', 'PENDING'] },
+      },
+      select: {
+        checkIn: true,
+        checkOut: true,
+      },
+    });
+
+    // Fetch owner blocked dates for this listing
+    const blockedDates = await prisma.blockedDate.findMany({
+      where: {
+        listingId: id,
+      },
+      select: {
+        startDate: true,
+        endDate: true,
+        reason: true,
+      },
+    });
+
+    const unavailableRanges = [
+      ...bookings.map((b) => ({
+        startDate: b.checkIn.toISOString().split('T')[0],
+        endDate: b.checkOut.toISOString().split('T')[0],
+        type: 'RESERVED',
+      })),
+      ...blockedDates.map((b) => ({
+        startDate: b.startDate.toISOString().split('T')[0],
+        endDate: b.endDate.toISOString().split('T')[0],
+        type: 'BLOCKED_BY_HOST',
+        reason: b.reason || 'Host maintenance',
+      })),
+    ];
+
+    return res.status(200).json({
+      listingId: id,
+      totalUnavailable: unavailableRanges.length,
+      unavailableRanges,
+    });
+  } catch (error) {
+    console.error('Get Listing Availability Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+/**
  * @route PUT /api/listings/:id
  * @desc  Update a listing (Owner Only - must own the business)
  */

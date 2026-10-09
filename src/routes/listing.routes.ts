@@ -3,6 +3,7 @@ import {
   createListing,
   getListingsByBusiness,
   searchListings,
+  getListingAvailability,
   updateListing,
   deleteListing,
 } from '../controllers/listing.controller';
@@ -14,6 +15,7 @@ const router = Router();
 router.get('/', searchListings);
 router.get('/search', searchListings);
 router.get('/business/:businessId', getListingsByBusiness);
+router.get('/:id/availability', getListingAvailability);
 
 // Owner Routes
 router.post('/', createListing);
