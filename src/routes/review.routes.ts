@@ -1,11 +1,14 @@
 import { Router } from 'express';
-import { createReview, getOwnerReviews, replyToReview } from '../controllers/review.controller';
+import { createReview, getOwnerReviews, replyToReview, getListingReviews } from '../controllers/review.controller';
 import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 
 // Traveler submits review
 router.post('/', createReview);
+
+// Public: Get reviews for a specific listing
+router.get('/listing/:listingId', getListingReviews);
 
 // Owner reviews list & metrics (UI Mockup 1)
 router.get('/owner', getOwnerReviews);
@@ -14,3 +17,4 @@ router.get('/owner', getOwnerReviews);
 router.post('/:id/reply', replyToReview);
 
 export default router;
+
