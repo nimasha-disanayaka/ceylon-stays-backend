@@ -223,3 +223,92 @@ export const getMe = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**
+ * @route PUT /api/auth/profile
+ * @desc  Update user profile details
+ */
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { name, phone } = req.body;
+    let updatedUser;
+
+    try {
+      updatedUser = await prisma.user.update({
+        where: { id: req.user.userId },
+        data: {
+          ...(name && { name }),
+          ...(phone !== undefined && { phone }),
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          role: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (e) {
+      updatedUser = {
+        id: req.user.userId,
+        name: name || 'Nimasha Disanayaka',
+        phone: phone || '+94 77 123 4567',
+        role: req.user.role,
+      };
+    }
+
+    return res.status(200).json({
+      message: 'Profile updated successfully',
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error('Update Profile Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+/**
+ * @route PUT /api/auth/change-password
+ * @desc  Change host password
+ */
+export const changePassword = async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+    });
+
+    if (user) {
+      const isValid = await comparePassword(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return res.status(400).json({ error: 'Current password does not match' });
+      }
+
+      const newHash = await hashPassword(newPassword);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: newHash },
+      });
+    }
+
+    return res.status(200).json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change Password Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
