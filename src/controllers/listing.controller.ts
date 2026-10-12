@@ -279,3 +279,84 @@ export const deleteListing = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };
+
+/**
+ * @route GET /api/listings/:id/blocked-dates
+ * @desc  Fetch all blocked dates for a listing
+ */
+export const getBlockedDates = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const blockedDates = await prisma.blockedDate.findMany({
+      where: { listingId: id },
+      orderBy: { startDate: 'asc' },
+    });
+    return res.status(200).json({ blockedDates });
+  } catch (error) {
+    console.error('Get Blocked Dates Error:', error);
+    return res.status(500).json({ error: 'Failed to fetch blocked dates' });
+  }
+};
+
+/**
+ * @route POST /api/listings/:id/blocked-dates
+ * @desc  Create a new blocked date range for a listing
+ */
+export const createBlockedDate = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { startDate, endDate, reason } = req.body;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and End date are required' });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    if (end <= start) {
+      return res.status(400).json({ error: 'End date must be after Start date' });
+    }
+
+    const newBlockedDate = await prisma.blockedDate.create({
+      data: {
+        listingId: id,
+        startDate: start,
+        endDate: end,
+        reason: reason || 'Host maintenance',
+      },
+    });
+
+    return res.status(201).json({
+      message: 'Date range blocked successfully',
+      blockedDate: newBlockedDate,
+    });
+  } catch (error) {
+    console.error('Create Blocked Date Error:', error);
+    return res.status(500).json({ error: 'Failed to block dates' });
+  }
+};
+
+/**
+ * @route DELETE /api/listings/:id/blocked-dates/:blockId
+ * @desc  Unblock a date range
+ */
+export const deleteBlockedDate = async (req: Request, res: Response) => {
+  try {
+    const { blockId } = req.params;
+
+    await prisma.blockedDate.delete({
+      where: { id: blockId },
+    });
+
+    return res.status(200).json({ message: 'Blocked date range removed successfully' });
+  } catch (error) {
+    console.error('Delete Blocked Date Error:', error);
+    return res.status(500).json({ error: 'Failed to unblock date range' });
+  }
+};
+
