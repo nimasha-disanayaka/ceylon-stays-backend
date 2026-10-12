@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { createBookingSchema, updateBookingStatusSchema, createBlockedDateSchema } from '../utils/validation';
 import { sendOwnerBookingNotification, verifyActionToken } from '../services/email.service';
+import { sendBookingSMSAlert } from '../services/sms.service';
 import { liveSubmittedReviews } from './review.controller';
 
 /**
@@ -117,7 +118,7 @@ export const createBooking = async (req: Request, res: Response) => {
       });
     });
 
-    // 5. Async Trigger Owner Email Notification (Zero-delay for mobile traveler)
+    // 5. Async Trigger Owner Email & SMS Notifications (Zero-delay for mobile traveler)
     if (listing.business && listing.business.owner) {
       sendOwnerBookingNotification({
         bookingId: newBooking.id,
@@ -131,6 +132,16 @@ export const createBooking = async (req: Request, res: Response) => {
         checkOut: checkOut,
         totalPrice: totalPrice,
       }).catch((err) => console.error('[EmailTriggerError]', err));
+
+      sendBookingSMSAlert({
+        ownerPhone: listing.business.owner.phone || '+94771234567',
+        guestName: newBooking.foreigner.name,
+        listingName: listing.name,
+        businessName: listing.business.name,
+        checkIn: checkIn,
+        checkOut: checkOut,
+        totalPrice: totalPrice,
+      }).catch((err) => console.error('[SMSTriggerError]', err));
     }
 
     return res.status(201).json({

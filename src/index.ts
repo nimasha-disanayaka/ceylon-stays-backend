@@ -9,6 +9,7 @@ import bookingRoutes from './routes/booking.routes';
 import reviewRoutes from './routes/review.routes';
 import uploadRoutes from './routes/upload.routes';
 import paymentRoutes from './routes/payment.routes';
+import notificationRoutes from './routes/notification.routes';
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
