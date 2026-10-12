@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding PostgreSQL database...');
 
-  const passwordHash = await bcrypt.hash('@11Ad4nimuu', 10);
+  const passwordHash = await bcrypt.hash('password123', 10);
 
   // 1. Create or update main owner account
   const owner = await prisma.user.upsert({

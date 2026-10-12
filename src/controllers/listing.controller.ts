@@ -180,8 +180,24 @@ export const getListingAvailability = async (req: Request, res: Response) => {
       })),
     ];
 
+    const { checkIn, checkOut } = req.query;
+    let available = true;
+
+    if (checkIn && checkOut) {
+      const qStart = new Date(checkIn as string);
+      const qEnd = new Date(checkOut as string);
+
+      const hasConflict = unavailableRanges.some((range) => {
+        const rStart = new Date(range.startDate);
+        const rEnd = new Date(range.endDate);
+        return qStart < rEnd && qEnd > rStart;
+      });
+      available = !hasConflict;
+    }
+
     return res.status(200).json({
       listingId: id,
+      available,
       totalUnavailable: unavailableRanges.length,
       unavailableRanges,
     });

@@ -109,6 +109,8 @@ export const login = async (req: Request, res: Response) => {
           },
           token,
         });
+      } else {
+        return res.status(401).json({ error: 'Invalid email or password' });
       }
     }
 
