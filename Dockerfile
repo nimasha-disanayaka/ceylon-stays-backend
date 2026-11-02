@@ -4,6 +4,7 @@
 
 # Stage 1: Build TypeScript & Generate Prisma Client
 FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 
@@ -20,6 +21,7 @@ RUN npm run build
 
 # Stage 2: Minimal Production Runtime
 FROM node:20-alpine AS runner
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 ENV NODE_ENV=production
