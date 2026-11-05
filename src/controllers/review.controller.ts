@@ -109,33 +109,22 @@ export const createReview = async (req: Request, res: Response) => {
 // Get reviews for property owner dashboard (matches UI mockup 1)
 export const getOwnerReviews = async (req: Request, res: Response) => {
   try {
-    // Baseline mock reviews matching Mockup 1 exactly
-    const baseMockReviews = [
-      {
-        id: 'demo-rev-1',
-        initials: 'LM',
-        authorName: 'Laura M.',
-        businessName: 'Mirissa Ocean Homestay',
-        rating: 5,
-        comment: 'Beautiful stay, walking distance to the beach, host was incredibly kind.',
-        reply: null,
-        createdAt: new Date(Date.now() - 86400000),
-      },
-      {
-        id: 'demo-rev-2',
-        initials: 'JS',
-        authorName: 'James Smith',
-        businessName: 'Cinnamon Citadel Kandy',
-        rating: 4,
-        comment: 'Great location, room could use better AC but overall a solid stay.',
-        reply: "Thanks for staying with us! We've noted the AC feedback for our next maintenance check.",
-        createdAt: new Date(Date.now() - 86400000 * 2),
-      },
-    ];
+    const ownerId = req.user?.userId;
 
     let dbReviewsFormatted: any[] = [];
     try {
       const dbReviews = await prisma.review.findMany({
+        where: ownerId
+          ? {
+              booking: {
+                listing: {
+                  business: {
+                    ownerId,
+                  },
+                },
+              },
+            }
+          : undefined,
         include: {
           booking: {
             include: {
@@ -148,17 +137,17 @@ export const getOwnerReviews = async (req: Request, res: Response) => {
       });
 
       dbReviewsFormatted = dbReviews.map((r: any) => {
-        const authorName = r.booking?.foreigner?.name || 'John M.';
+        const authorName = r.booking?.foreigner?.name || 'Guest';
         const nameParts = authorName.trim().split(' ');
         const initials = nameParts.length > 1
           ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-          : `${authorName[0]}${authorName[1] || 'M'}`.toUpperCase();
+          : `${authorName[0]}${authorName[1] || 'G'}`.toUpperCase();
 
         return {
           id: r.id,
           initials,
           authorName,
-          businessName: r.booking?.listing?.business?.name || 'Mirissa Luxury Hotel',
+          businessName: r.booking?.listing?.business?.name || 'My Property',
           rating: r.rating,
           comment: r.comment,
           reply: r.reply || null,
@@ -169,27 +158,18 @@ export const getOwnerReviews = async (req: Request, res: Response) => {
       console.warn('Prisma review fetch warning:', dbErr);
     }
 
-    // Merge live submitted reviews, DB reviews, and base mock reviews while removing duplicates by ID
-    const combinedMap = new Map();
-    [...liveSubmittedReviews, ...dbReviewsFormatted, ...baseMockReviews].forEach((rev) => {
-      if (!combinedMap.has(rev.id)) {
-        combinedMap.set(rev.id, rev);
-      }
-    });
-
-    const combined = Array.from(combinedMap.values());
-    const totalReviews = 30 + combined.length; // Base 30 + new reviews
-    const awaitingReply = combined.filter((r) => !r.reply).length;
-    const avgSum = combined.reduce((acc, r) => acc + r.rating, 0);
-    const averageRating = (avgSum / combined.length).toFixed(1);
+    const totalReviews = dbReviewsFormatted.length;
+    const awaitingReply = dbReviewsFormatted.filter((r) => !r.reply).length;
+    const avgSum = dbReviewsFormatted.reduce((acc, r) => acc + r.rating, 0);
+    const averageRating = totalReviews > 0 ? (avgSum / totalReviews).toFixed(1) : '5.0';
 
     return res.status(200).json({
       summary: {
-        averageRating: Number(averageRating) || 4.7,
+        averageRating: Number(averageRating),
         totalReviews,
         awaitingReply,
       },
-      reviews: combined,
+      reviews: dbReviewsFormatted,
     });
   } catch (error: any) {
     console.error('Error fetching owner reviews:', error);

@@ -23,7 +23,7 @@ router.get('/my-bookings', getMyBookings);
 router.post('/:id/cancel', cancelBooking);
 
 // Owner Routes
-router.get('/owner-bookings', getOwnerBookings);
+router.get('/owner-bookings', authenticate, authorize(['OWNER']), getOwnerBookings);
 router.post('/blocked-dates', createBlockedDate);
 
 // Shared Protected Route (Owner or Foreigner involved in booking)

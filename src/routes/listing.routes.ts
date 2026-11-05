@@ -26,9 +26,9 @@ router.post('/:id/blocked-dates', createBlockedDate);
 router.delete('/:id/blocked-dates/:blockId', deleteBlockedDate);
 
 // Owner Routes
-router.post('/', createListing);
-router.put('/:id', updateListing);
-router.delete('/:id', deleteListing);
+router.post('/', authenticate, authorize(['OWNER']), createListing);
+router.put('/:id', authenticate, authorize(['OWNER']), updateListing);
+router.delete('/:id', authenticate, authorize(['OWNER']), deleteListing);
 
 export default router;
 

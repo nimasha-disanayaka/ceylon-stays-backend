@@ -11,10 +11,10 @@ router.post('/', createReview);
 router.get('/listing/:listingId', getListingReviews);
 
 // Owner reviews list & metrics (UI Mockup 1)
-router.get('/owner', getOwnerReviews);
+router.get('/owner', authenticate, getOwnerReviews);
 
 // Owner replies to review
-router.post('/:id/reply', replyToReview);
+router.post('/:id/reply', authenticate, replyToReview);
 
 export default router;
 

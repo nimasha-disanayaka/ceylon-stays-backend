@@ -310,7 +310,19 @@ export const getMyBookings = async (req: Request, res: Response) => {
  */
 export const getOwnerBookings = async (req: Request, res: Response) => {
   try {
+    const ownerId = req.user?.userId;
+    if (!ownerId) {
+      return res.status(401).json({ error: 'Unauthorized: User identity not found' });
+    }
+
     const bookings = await prisma.booking.findMany({
+      where: {
+        listing: {
+          business: {
+            ownerId,
+          },
+        },
+      },
       include: {
         foreigner: {
           select: { id: true, name: true, email: true, phone: true },
