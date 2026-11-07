@@ -2,8 +2,6 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { createListingSchema, updateListingSchema } from '../utils/validation';
 import { BusinessType } from '@prisma/client';
-import { liveOwnerBusinesses } from './business.controller';
-import { localStore } from '../services/store.service';
 
 /**
  * @route POST /api/listings
@@ -26,23 +24,10 @@ export const createListing = async (req: Request, res: Response) => {
 
     const { businessId, name, description, pricePerNight, maxGuests, amenities, isActive } = validationResult.data;
 
-    // 2. Verify business exists and belongs to logged-in owner
-    let business: any = null;
-    try {
-      business = await prisma.business.findUnique({
-        where: { id: businessId },
-      });
-    } catch (dbErr) {
-      console.warn('DB findUnique business notice:', dbErr);
-    }
-
-    if (!business) {
-      business = localStore.getBusinessById(businessId);
-    }
-
-    if (!business) {
-      business = liveOwnerBusinesses.find((b) => b.id === businessId);
-    }
+    // 2. Verify business exists in PostgreSQL and belongs to logged-in owner
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+    });
 
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
@@ -52,58 +37,26 @@ export const createListing = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden: You do not own this business' });
     }
 
-    // 3. Create Listing
-    let listing: any = null;
-    try {
-      listing = await prisma.listing.create({
-        data: {
-          businessId,
-          name,
-          description,
-          pricePerNight,
-          maxGuests,
-          amenities,
-          isActive,
-        },
-      });
-    } catch (dbErr) {
-      console.warn('DB create listing notice:', dbErr);
-    }
-
-    const finalListing = listing || {
-      id: `list-${Date.now()}`,
-      businessId,
-      name,
-      description,
-      pricePerNight,
-      maxGuests,
-      amenities,
-      isActive: isActive !== false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Always persist to localStore disk
-    localStore.saveListing({
-      id: finalListing.id,
-      businessId: finalListing.businessId,
-      name: finalListing.name,
-      description: finalListing.description,
-      pricePerNight: finalListing.pricePerNight,
-      maxGuests: finalListing.maxGuests,
-      amenities: finalListing.amenities,
-      isActive: finalListing.isActive,
-      createdAt: finalListing.createdAt instanceof Date ? finalListing.createdAt.toISOString() : String(finalListing.createdAt),
-      updatedAt: new Date().toISOString(),
+    // 3. Create Listing in PostgreSQL
+    const listing = await prisma.listing.create({
+      data: {
+        businessId,
+        name,
+        description,
+        pricePerNight,
+        maxGuests,
+        amenities,
+        isActive,
+      },
     });
 
     return res.status(201).json({
       message: 'Listing created successfully',
-      listing: finalListing,
+      listing,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create Listing Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error creating listing' });
   }
 };
 
@@ -118,47 +71,27 @@ export const getMyListings = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized: User identity not found' });
     }
 
-    let dbListings: any[] = [];
-    try {
-      dbListings = await prisma.listing.findMany({
-        where: {
-          business: {
-            ownerId: userId,
-          },
+    const listings = await prisma.listing.findMany({
+      where: {
+        business: {
+          ownerId: userId,
         },
-        include: {
-          business: {
-            select: { id: true, name: true, type: true, address: true },
-          },
+      },
+      include: {
+        business: {
+          select: { id: true, name: true, type: true, address: true },
         },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (dbErr) {
-      console.warn('DB getMyListings notice:', dbErr);
-    }
-
-    // Load persistent store listings
-    const storedListings = localStore.getListingsByOwner(userId).map((l) => ({
-      ...l,
-      business: l.business ? { id: l.business.id, name: l.business.name, type: l.business.type, address: l.business.address } : undefined,
-    }));
-
-    const map = new Map();
-    [...dbListings, ...storedListings].forEach((l) => {
-      if (!map.has(l.id)) {
-        map.set(l.id, l);
-      }
+      },
+      orderBy: { createdAt: 'desc' },
     });
-
-    const combined = Array.from(map.values());
 
     return res.status(200).json({
-      count: combined.length,
-      listings: combined,
+      count: listings.length,
+      listings,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get My Listings Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching listings' });
   }
 };
 
@@ -176,9 +109,9 @@ export const getListingsByBusiness = async (req: Request, res: Response) => {
     });
 
     return res.status(200).json({ listings });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Listings By Business Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching business listings' });
   }
 };
 
@@ -216,57 +149,23 @@ export const searchListings = async (req: Request, res: Response) => {
       ];
     }
 
-    let dbListings: any[] = [];
-    try {
-      dbListings = await prisma.listing.findMany({
-        where: whereClause,
-        include: {
-          business: {
-            select: { id: true, name: true, type: true, address: true, latitude: true, longitude: true },
-          },
+    const listings = await prisma.listing.findMany({
+      where: whereClause,
+      include: {
+        business: {
+          select: { id: true, name: true, type: true, address: true, latitude: true, longitude: true },
         },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (dbErr) {
-      console.warn('DB searchListings notice:', dbErr);
-    }
-
-    // Load from local persistent store
-    let storedListings = localStore.getAllListings().filter((l) => l.isActive);
-    if (type) {
-      storedListings = storedListings.filter((l) => l.business?.type === type);
-    }
-    if (maxPrice) {
-      storedListings = storedListings.filter((l) => l.pricePerNight <= parseFloat(maxPrice as string));
-    }
-    if (guests) {
-      storedListings = storedListings.filter((l) => l.maxGuests >= parseInt(guests as string, 10));
-    }
-    if (query) {
-      const q = String(query).toLowerCase();
-      storedListings = storedListings.filter(
-        (l) =>
-          l.name.toLowerCase().includes(q) ||
-          (l.description || '').toLowerCase().includes(q) ||
-          (l.business?.name || '').toLowerCase().includes(q) ||
-          (l.business?.address || '').toLowerCase().includes(q)
-      );
-    }
-
-    const map = new Map();
-    [...dbListings, ...storedListings].forEach((l) => {
-      if (!map.has(l.id)) map.set(l.id, l);
+      },
+      orderBy: { createdAt: 'desc' },
     });
-
-    const listings = Array.from(map.values());
 
     return res.status(200).json({
       count: listings.length,
       listings,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Search Listings Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error searching listings' });
   }
 };
 
@@ -278,7 +177,7 @@ export const getListingAvailability = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Fetch confirmed or pending bookings for this listing
+    // Fetch confirmed or pending bookings for this listing from PostgreSQL
     const bookings = await prisma.booking.findMany({
       where: {
         listingId: id,
@@ -290,7 +189,7 @@ export const getListingAvailability = async (req: Request, res: Response) => {
       },
     });
 
-    // Fetch owner blocked dates for this listing
+    // Fetch owner blocked dates for this listing from PostgreSQL
     const blockedDates = await prisma.blockedDate.findMany({
       where: {
         listingId: id,
@@ -337,9 +236,9 @@ export const getListingAvailability = async (req: Request, res: Response) => {
       totalUnavailable: unavailableRanges.length,
       unavailableRanges,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Listing Availability Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching availability' });
   }
 };
 
@@ -378,7 +277,7 @@ export const updateListing = async (req: Request, res: Response) => {
       });
     }
 
-    // 3. Update Listing
+    // 3. Update Listing in PostgreSQL
     const updatedListing = await prisma.listing.update({
       where: { id },
       data: validationResult.data,
@@ -388,9 +287,9 @@ export const updateListing = async (req: Request, res: Response) => {
       message: 'Listing updated successfully',
       listing: updatedListing,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Update Listing Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error updating listing' });
   }
 };
 
@@ -426,9 +325,9 @@ export const deleteListing = async (req: Request, res: Response) => {
     });
 
     return res.status(200).json({ message: 'Listing deactivated successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete Listing Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error deactivating listing' });
   }
 };
 
@@ -444,7 +343,7 @@ export const getBlockedDates = async (req: Request, res: Response) => {
       orderBy: { startDate: 'asc' },
     });
     return res.status(200).json({ blockedDates });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Blocked Dates Error:', error);
     return res.status(500).json({ error: 'Failed to fetch blocked dates' });
   }
@@ -487,7 +386,7 @@ export const createBlockedDate = async (req: Request, res: Response) => {
       message: 'Date range blocked successfully',
       blockedDate: newBlockedDate,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create Blocked Date Error:', error);
     return res.status(500).json({ error: 'Failed to block dates' });
   }
@@ -506,7 +405,7 @@ export const deleteBlockedDate = async (req: Request, res: Response) => {
     });
 
     return res.status(200).json({ message: 'Blocked date range removed successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete Blocked Date Error:', error);
     return res.status(500).json({ error: 'Failed to unblock date range' });
   }

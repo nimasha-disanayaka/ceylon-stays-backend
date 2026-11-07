@@ -1,15 +1,15 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { BookingStatus, PaymentStatus } from '@prisma/client';
 import { createBookingSchema, updateBookingStatusSchema, createBlockedDateSchema } from '../utils/validation';
 import { sendOwnerBookingNotification, sendBookingCancellationNotification, verifyActionToken } from '../services/email.service';
 import { sendBookingSMSAlert } from '../services/sms.service';
-import { liveSubmittedReviews } from './review.controller';
-import { localStore } from '../services/store.service';
+import { calculateCancellationRefund } from '../utils/cancellation';
 
 /**
  * @route POST /api/bookings
  * @desc  Create a new booking reservation (Foreigner Only)
- *        Atomically verifies date overlap before reserving.
+ *        Atomically verifies date overlap before reserving using row-level locking.
  */
 export const createBooking = async (req: Request, res: Response) => {
   try {
@@ -21,12 +21,9 @@ export const createBooking = async (req: Request, res: Response) => {
       });
     }
 
-    let guestUser: any = null;
-    try {
-      guestUser = await prisma.user.findUnique({ where: { id: foreignerId } });
-    } catch {}
+    const guestUser = await prisma.user.findUnique({ where: { id: foreignerId } });
     if (!guestUser) {
-      guestUser = localStore.getUserById(foreignerId);
+      return res.status(401).json({ error: 'Guest user account not found in database' });
     }
 
     // 1. Validate Input Body with Zod
@@ -42,34 +39,17 @@ export const createBooking = async (req: Request, res: Response) => {
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
 
-    // 2. Fetch Listing details & verify active status
-    let listing: any = null;
-    try {
-      listing = await prisma.listing.findUnique({
-        where: { id: listingId },
-        include: {
-          business: {
-            include: {
-              owner: true,
-            },
+    // 2. Fetch Listing details & verify active status from PostgreSQL
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      include: {
+        business: {
+          include: {
+            owner: true,
           },
         },
-      });
-    } catch (dbErr) {
-      console.warn('DB listing lookup notice:', dbErr);
-    }
-
-    if (!listing) {
-      const stored = localStore.getListingById(listingId);
-      if (stored) {
-        const storedBiz = localStore.getBusinessById(stored.businessId);
-        const storedOwner = storedBiz ? localStore.getUserById(storedBiz.ownerId) : undefined;
-        listing = {
-          ...stored,
-          business: storedBiz ? { ...storedBiz, owner: storedOwner } : undefined,
-        };
-      }
-    }
+      },
+    });
 
     if (!listing || !listing.isActive) {
       return res.status(404).json({ error: 'Listing not found or currently inactive' });
@@ -86,127 +66,86 @@ export const createBooking = async (req: Request, res: Response) => {
     const totalPrice = totalNights * listing.pricePerNight;
 
     const { paymentMethod, paymentStatus: bodyPaymentStatus } = req.body;
-    const initialPaymentStatus = bodyPaymentStatus || (paymentMethod === 'PAY_AT_PROPERTY' ? 'UNPAID' : 'PAID');
+    // Preserve payment status: do not mark CAPTURED unless payment actually succeeded
+    let bookingPaymentStatus: 'UNPAID' | 'PAID' | 'CAPTURED' = 'UNPAID';
+    if (bodyPaymentStatus === 'PAID' || bodyPaymentStatus === 'CAPTURED') {
+      bookingPaymentStatus = bodyPaymentStatus;
+    } else if (paymentMethod === 'PAY_AT_PROPERTY') {
+      bookingPaymentStatus = 'UNPAID';
+    } else if (bodyPaymentStatus) {
+      bookingPaymentStatus = bodyPaymentStatus;
+    }
 
-    // 4. Overlap Check & Atomic Transaction
-    let newBooking: any = null;
-    try {
-      newBooking = await prisma.$transaction(async (tx) => {
-        // Check overlapping confirmed or pending bookings
-        const existingOverlap = await tx.booking.findFirst({
-          where: {
-            listingId,
-            status: { in: ['CONFIRMED', 'PENDING'] },
-            AND: [
-              { checkIn: { lt: checkOutDate } },
-              { checkOut: { gt: checkInDate } },
-            ],
-          },
-        });
+    // 4. Overlap Check & Atomic Transaction with Listing Row-Locking for Concurrency Safety
+    const newBooking = await prisma.$transaction(async (tx) => {
+      // Row lock on listing to serialize concurrent bookings on this specific listing
+      await tx.$queryRaw`SELECT id FROM "Listing" WHERE id = ${listingId} FOR UPDATE`;
 
-        if (existingOverlap) {
-          throw new Error('COLLISION_BOOKING_EXISTS');
-        }
-
-        // Check overlapping blocked dates set by owner
-        const blockedOverlap = await tx.blockedDate.findFirst({
-          where: {
-            listingId,
-            AND: [
-              { startDate: { lt: checkOutDate } },
-              { endDate: { gt: checkInDate } },
-            ],
-          },
-        });
-
-        if (blockedOverlap) {
-          throw new Error('COLLISION_BLOCKED_DATE');
-        }
-
-        // Create Booking Record with Instant Confirmation
-        const confirmedPaymentStatus = initialPaymentStatus === 'UNPAID' ? 'UNPAID' : 'CAPTURED';
-        return await tx.booking.create({
-          data: {
-            foreignerId,
-            listingId,
-            checkIn: checkInDate,
-            checkOut: checkOutDate,
-            totalPrice,
-            status: 'CONFIRMED',
-            paymentStatus: confirmedPaymentStatus,
-          },
-          include: {
-            listing: {
-              select: { id: true, name: true, pricePerNight: true, businessId: true },
-            },
-            foreigner: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        });
+      // Check overlapping confirmed or pending bookings
+      const existingOverlap = await tx.booking.findFirst({
+        where: {
+          listingId,
+          status: { in: ['CONFIRMED', 'PENDING'] },
+          AND: [
+            { checkIn: { lt: checkOutDate } },
+            { checkOut: { gt: checkInDate } },
+          ],
+        },
       });
-    } catch (txErr: any) {
-      if (txErr.message === 'COLLISION_BOOKING_EXISTS' || txErr.message === 'COLLISION_BLOCKED_DATE') {
-        throw txErr;
+
+      if (existingOverlap) {
+        throw new Error('COLLISION_BOOKING_EXISTS');
       }
-      console.warn('DB booking transaction notice, using fallback:', txErr);
-    }
 
-    const confirmedPaymentStatus = initialPaymentStatus === 'UNPAID' ? 'UNPAID' : 'CAPTURED';
+      // Check overlapping blocked dates set by owner
+      const blockedOverlap = await tx.blockedDate.findFirst({
+        where: {
+          listingId,
+          AND: [
+            { startDate: { lt: checkOutDate } },
+            { endDate: { gt: checkInDate } },
+          ],
+        },
+      });
 
-    if (!newBooking) {
-      newBooking = {
-        id: `book-${Date.now().toString(36).toUpperCase()}`,
-        foreignerId,
-        listingId,
-        checkIn: checkInDate,
-        checkOut: checkOutDate,
-        totalPrice,
-        status: 'CONFIRMED',
-        paymentStatus: confirmedPaymentStatus,
-        listing: { id: listing.id, name: listing.name, pricePerNight: listing.pricePerNight, businessId: listing.businessId },
-        foreigner: { id: foreignerId, name: guestUser?.name || 'Traveler Guest', email: guestUser?.email || 'guest@example.com' },
-      };
-    }
+      if (blockedOverlap) {
+        throw new Error('COLLISION_BLOCKED_DATE');
+      }
 
-    // Always persist to localStore disk with CONFIRMED status
-    localStore.saveBooking({
-      id: newBooking.id,
-      foreignerId: foreignerId,
-      listingId,
-      checkIn: checkInDate.toISOString(),
-      checkOut: checkOutDate.toISOString(),
-      totalPrice,
-      status: 'CONFIRMED',
-      paymentStatus: confirmedPaymentStatus,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      // Create Booking Record in PostgreSQL
+      return await tx.booking.create({
+        data: {
+          foreignerId,
+          listingId,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          totalPrice,
+          status: 'CONFIRMED',
+          paymentStatus: bookingPaymentStatus,
+        },
+        include: {
+          listing: {
+            select: { id: true, name: true, pricePerNight: true, businessId: true },
+          },
+          foreigner: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
     });
 
     // 5. Async Trigger Owner Email & SMS Notifications
-    let owner = listing?.business?.owner;
-    if (!owner && listing?.business?.ownerId) {
-      try {
-        owner = await prisma.user.findUnique({ where: { id: listing.business.ownerId } });
-      } catch {}
-      if (!owner) {
-        owner = localStore.getUserById(listing.business.ownerId);
-      }
-    }
-    if (!owner) {
-      owner = localStore.ensureStore().users.find((u) => u.role === 'OWNER');
-    }
-
+    const owner = listing.business.owner;
     if (owner && owner.email) {
       console.log(`[Booking] 📧 Sending confirmed booking email to owner: ${owner.email}`);
       sendOwnerBookingNotification({
         bookingId: newBooking.id,
         ownerEmail: owner.email,
         ownerName: owner.name || 'Property Host',
-        guestName: guestUser?.name || newBooking.foreigner?.name || 'Traveler Guest',
-        guestEmail: guestUser?.email || newBooking.foreigner?.email || 'guest@example.com',
+        guestName: guestUser.name || 'Traveler Guest',
+        guestEmail: guestUser.email,
         listingTitle: listing.name,
-        businessName: listing.business?.name || 'Your Property',
+        businessName: listing.business.name || 'Your Property',
         checkIn: checkIn,
         checkOut: checkOut,
         totalPrice: totalPrice,
@@ -214,9 +153,9 @@ export const createBooking = async (req: Request, res: Response) => {
 
       sendBookingSMSAlert({
         ownerPhone: owner.phone || '+94771234567',
-        guestName: guestUser?.name || newBooking.foreigner?.name || 'Traveler Guest',
+        guestName: guestUser.name || 'Traveler Guest',
         listingName: listing.name,
-        businessName: listing.business?.name || 'Your Property',
+        businessName: listing.business.name || 'Your Property',
         checkIn: checkIn,
         checkOut: checkOut,
         totalPrice: totalPrice,
@@ -238,7 +177,7 @@ export const createBooking = async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Conflict: Owner has blocked availability for the selected dates' });
     }
     console.error('Create Booking Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error creating booking' });
   }
 };
 
@@ -292,25 +231,17 @@ export const handleEmailBookingAction = async (req: Request, res: Response) => {
       `);
     }
 
-    // Update DB status and payment authorization
     const isConfirmed = action === 'CONFIRMED';
-    const finalStatus = isConfirmed ? 'CONFIRMED' : 'DECLINED';
-    const finalPaymentStatus = isConfirmed ? 'CAPTURED' : 'RELEASED';
+    const finalStatus: BookingStatus = isConfirmed ? BookingStatus.CONFIRMED : BookingStatus.DECLINED;
+    const finalPaymentStatus: PaymentStatus = isConfirmed ? PaymentStatus.CAPTURED : PaymentStatus.RELEASED;
 
-    let updated: any = null;
-    try {
-      updated = await prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: finalStatus as any,
-          paymentStatus: finalPaymentStatus as any,
-        },
-      });
-    } catch (err) {
-      console.warn('DB booking status update notice:', err);
-    }
-
-    localStore.updateBookingStatus(bookingId, finalStatus, finalPaymentStatus);
+    const updated = await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: finalStatus,
+        paymentStatus: finalPaymentStatus,
+      },
+    });
 
     const statusColor = isConfirmed ? '#16a34a' : '#dc2626';
     const statusTitle = isConfirmed ? 'Reservation Confirmed! 🎉' : 'Reservation Declined 🛑';
@@ -361,49 +292,36 @@ export const handleEmailBookingAction = async (req: Request, res: Response) => {
   }
 };
 
-
 /**
  * @route GET /api/bookings/my-bookings
  * @desc  Get logged-in Foreigner's booking history (Foreigner Only)
  */
 export const getMyBookings = async (req: Request, res: Response) => {
   try {
-    let foreignerId = req.user?.userId;
-    let dbBookings: any[] = [];
-
-    try {
-      dbBookings = await prisma.booking.findMany({
-        where: foreignerId ? { foreignerId } : {},
-        include: {
-          listing: {
-            include: {
-              business: {
-                select: { id: true, name: true, type: true, address: true, imageUrls: true },
-              },
-            },
-          },
-          review: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (dbErr) {
-      console.warn('DB getMyBookings notice:', dbErr);
+    const foreignerId = req.user?.userId;
+    if (!foreignerId) {
+      return res.status(401).json({ error: 'Unauthorized: User identity not found' });
     }
 
-    const storedBookings = foreignerId
-      ? localStore.getBookingsByForeigner(foreignerId)
-      : localStore.ensureStore().bookings;
-
-    const map = new Map();
-    [...dbBookings, ...storedBookings].forEach((b) => {
-      if (!map.has(b.id)) map.set(b.id, b);
+    const bookings = await prisma.booking.findMany({
+      where: { foreignerId },
+      include: {
+        listing: {
+          include: {
+            business: {
+              select: { id: true, name: true, type: true, address: true, imageUrls: true },
+            },
+          },
+        },
+        review: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const bookings = Array.from(map.values());
     return res.status(200).json({ bookings });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get My Bookings Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching bookings' });
   }
 };
 
@@ -418,66 +336,31 @@ export const getOwnerBookings = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized: User identity not found' });
     }
 
-    let dbBookings: any[] = [];
-    try {
-      // Auto-migrate any legacy PENDING bookings to CONFIRMED for Instant Booking
-      try {
-        await prisma.booking.updateMany({
-          where: {
-            status: 'PENDING',
-            listing: {
-              business: {
-                ownerId,
-              },
-            },
-          },
-          data: {
-            status: 'CONFIRMED',
-            paymentStatus: 'CAPTURED',
-          },
-        });
-      } catch {}
-
-      dbBookings = await prisma.booking.findMany({
-        where: {
-          listing: {
-            business: {
-              ownerId,
-            },
+    const bookings = await prisma.booking.findMany({
+      where: {
+        listing: {
+          business: {
+            ownerId,
           },
         },
-        include: {
-          foreigner: {
-            select: { id: true, name: true, email: true, phone: true },
-          },
-          listing: {
-            include: {
-              business: true,
-            },
+      },
+      include: {
+        foreigner: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
+        listing: {
+          include: {
+            business: true,
           },
         },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (dbErr) {
-      console.warn('DB getOwnerBookings notice:', dbErr);
-    }
-
-    const storedBookings = localStore.getBookingsByOwner(ownerId);
-    const map = new Map();
-    [...dbBookings, ...storedBookings].forEach((b) => {
-      // Ensure all instant reservations reflect CONFIRMED and CAPTURED
-      const finalB = b.status === 'PENDING'
-        ? { ...b, status: 'CONFIRMED', paymentStatus: 'CAPTURED' }
-        : b;
-      if (!map.has(finalB.id)) map.set(finalB.id, finalB);
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const bookings = Array.from(map.values());
-
     return res.status(200).json({ bookings });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Owner Bookings Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching owner bookings' });
   }
 };
 
@@ -498,55 +381,46 @@ export const updateBookingStatus = async (req: Request, res: Response) => {
       });
     }
 
-    let booking: any = null;
-    try {
-      booking = await prisma.booking.findUnique({
-        where: { id },
-        include: {
-          listing: {
-            include: { business: true },
-          },
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        listing: {
+          include: { business: true },
         },
-      });
-    } catch (dbErr) {
-      console.warn('DB lookup booking notice:', dbErr);
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
     }
 
     const { status, paymentStatus } = validationResult.data;
 
     // Determine target paymentStatus if not explicitly supplied
-    let targetPaymentStatus = paymentStatus;
+    let targetPaymentStatus: PaymentStatus | undefined = paymentStatus as PaymentStatus | undefined;
     if (!targetPaymentStatus) {
       if (status === 'CONFIRMED' || status === 'COMPLETED' || status === 'NO_SHOW') {
-        targetPaymentStatus = 'CAPTURED';
+        targetPaymentStatus = PaymentStatus.CAPTURED;
       } else if (status === 'DECLINED') {
-        targetPaymentStatus = 'RELEASED';
+        targetPaymentStatus = PaymentStatus.RELEASED;
       }
     }
 
-    let updatedBooking: any = null;
-    try {
-      updatedBooking = await prisma.booking.update({
-        where: { id },
-        data: {
-          status: status as any,
-          ...(targetPaymentStatus && { paymentStatus: targetPaymentStatus as any }),
-        },
-      });
-    } catch (dbErr) {
-      console.warn('DB update booking notice:', dbErr);
-    }
-
-    const storedUpdated = localStore.updateBookingStatus(id, status, targetPaymentStatus);
-    const finalBooking = updatedBooking || storedUpdated || { id, status, paymentStatus: targetPaymentStatus };
+    const updatedBooking = await prisma.booking.update({
+      where: { id },
+      data: {
+        status: status as BookingStatus,
+        ...(targetPaymentStatus && { paymentStatus: targetPaymentStatus }),
+      },
+    });
 
     return res.status(200).json({
       message: 'Booking status updated successfully',
-      booking: finalBooking,
+      booking: updatedBooking,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Update Booking Status Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error updating booking status' });
   }
 };
 
@@ -593,9 +467,9 @@ export const createBlockedDate = async (req: Request, res: Response) => {
       message: 'Dates blocked successfully',
       blockedDate,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create Blocked Date Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error blocking dates' });
   }
 };
 
@@ -607,41 +481,19 @@ export const cancelBooking = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    let booking: any = null;
-    try {
-      booking = await prisma.booking.findUnique({
-        where: { id },
-        include: {
-          listing: {
-            include: {
-              business: {
-                include: { owner: true },
-              },
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        listing: {
+          include: {
+            business: {
+              include: { owner: true },
             },
           },
-          foreigner: true,
         },
-      });
-    } catch (dbErr) {
-      console.warn('DB lookup booking notice on cancel:', dbErr);
-    }
-
-    if (!booking) {
-      const stored = localStore.getBookingById(id);
-      if (stored) {
-        const storedListing = localStore.getListingById(stored.listingId);
-        const storedBiz = storedListing ? localStore.getBusinessById(storedListing.businessId) : undefined;
-        const storedOwner = storedBiz ? localStore.getUserById(storedBiz.ownerId) : undefined;
-        const storedGuest = localStore.getUserById(stored.foreignerId);
-        booking = {
-          ...stored,
-          listing: storedListing
-            ? { ...storedListing, business: storedBiz ? { ...storedBiz, owner: storedOwner } : undefined }
-            : undefined,
-          foreigner: storedGuest,
-        };
-      }
-    }
+        foreigner: true,
+      },
+    });
 
     if (!booking) {
       return res.status(404).json({ error: 'Booking reservation not found' });
@@ -651,56 +503,23 @@ export const cancelBooking = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Booking is already cancelled' });
     }
 
-    const checkInDate = new Date(booking.checkIn);
-    const now = new Date();
-    const diffMs = checkInDate.getTime() - now.getTime();
-    const hoursUntilCheckIn = diffMs / (1000 * 60 * 60);
+    const refundCalc = calculateCancellationRefund(
+      booking.checkIn,
+      booking.totalPrice,
+      booking.paymentStatus
+    );
 
-    let refundPercent = 0;
-    let policyTier = 'NON_REFUNDABLE';
-    let policyDescription = 'Cancelled within 24 hours of check-in or after check-in';
-
-    if (hoursUntilCheckIn >= 120) {
-      refundPercent = 100;
-      policyTier = 'FULL_REFUND';
-      policyDescription = 'Cancelled 5+ days before check-in (100% full refund)';
-    } else if (hoursUntilCheckIn >= 24) {
-      refundPercent = 50;
-      policyTier = 'PARTIAL_REFUND';
-      policyDescription = 'Cancelled within 5 days of check-in (50% partial refund)';
-    }
-
-    const refundAmount = Math.round((booking.totalPrice * (refundPercent / 100)) * 100) / 100;
-    const finalPaymentStatus = refundPercent === 100 ? 'REFUNDED' : 'UNPAID';
-
-    let updatedBooking: any = null;
-    try {
-      updatedBooking = await prisma.booking.update({
-        where: { id },
-        data: {
-          status: 'CANCELLED',
-          paymentStatus: finalPaymentStatus as any,
-        },
-      });
-    } catch (dbErr) {
-      console.warn('DB update booking notice on cancel:', dbErr);
-    }
-
-    localStore.updateBookingStatus(id, 'CANCELLED', finalPaymentStatus);
+    const updatedBooking = await prisma.booking.update({
+      where: { id },
+      data: {
+        status: BookingStatus.CANCELLED,
+        paymentStatus: refundCalc.targetPaymentStatus,
+      },
+    });
 
     // Resolve owner & guest for email notification
-    let owner = booking.listing?.business?.owner;
-    if (!owner && booking.listing?.business?.ownerId) {
-      owner = localStore.getUserById(booking.listing.business.ownerId);
-    }
-    if (!owner) {
-      owner = localStore.ensureStore().users.find((u) => u.role === 'OWNER');
-    }
-
-    let guestUser = booking.foreigner;
-    if (!guestUser && booking.foreignerId) {
-      guestUser = localStore.getUserById(booking.foreignerId);
-    }
+    const owner = booking.listing.business.owner;
+    const guestUser = booking.foreigner;
 
     if (owner && owner.email) {
       console.log(`[Booking] 📧 Sending cancellation email to owner: ${owner.email}`);
@@ -710,30 +529,33 @@ export const cancelBooking = async (req: Request, res: Response) => {
         ownerName: owner.name || 'Property Host',
         guestName: guestUser?.name || 'Traveler Guest',
         guestEmail: guestUser?.email || 'guest@example.com',
-        listingTitle: booking.listing?.name || 'Your Room',
-        businessName: booking.listing?.business?.name || 'Your Property',
+        listingTitle: booking.listing.name || 'Your Room',
+        businessName: booking.listing.business.name || 'Your Property',
         checkIn: booking.checkIn.toString(),
         checkOut: booking.checkOut.toString(),
         totalPrice: booking.totalPrice,
-        refundAmount,
-        refundPercent,
-        policyDescription,
+        refundAmount: refundCalc.refundAmount,
+        refundPercent: refundCalc.refundPercent,
+        policyDescription: refundCalc.policyDescription,
       }).catch((err) => console.error('[CancelEmailTriggerError]', err));
     }
 
     return res.status(200).json({
       message: 'Reservation cancelled successfully',
-      booking: updatedBooking || { ...booking, status: 'CANCELLED', paymentStatus: finalPaymentStatus },
+      booking: updatedBooking,
       cancellationSummary: {
-        hoursUntilCheckIn: Math.round(hoursUntilCheckIn),
-        refundPercent,
-        refundAmount,
-        policyTier,
-        policyDescription,
+        hoursUntilCheckIn: refundCalc.hoursUntilCheckIn,
+        refundPercent: refundCalc.refundPercent,
+        refundAmount: refundCalc.refundAmount,
+        policyTier: refundCalc.policyTier,
+        policyDescription: refundCalc.policyDescription,
+        isEligibleForRefund: refundCalc.isEligibleForRefund,
+        refundExecutionStatus: refundCalc.refundExecutionStatus,
+        refundCompleted: refundCalc.refundCompleted,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Cancel Booking Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error cancelling booking' });
   }
 };

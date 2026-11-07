@@ -4,6 +4,12 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force-production-reset')) {
+    console.error('⛔ SAFETY ABORT: Database seeding with destructive wipe is disabled in PRODUCTION.');
+    console.error('To preserve user data, seeding cannot run unless --force-production-reset is explicitly passed.');
+    process.exit(1);
+  }
+
   console.log('🌱 Seeding PostgreSQL database...');
 
   const passwordHash = await bcrypt.hash('password123', 10);

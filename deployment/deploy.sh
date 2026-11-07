@@ -42,9 +42,9 @@ docker compose -f docker-compose.prod.yml up -d
 echo "⏳ Waiting for database and services to report healthy..."
 sleep 10
 
-# 4. Run Prisma database seed
-echo "🌱 Seeding initial platform data and verified accounts..."
-docker exec -i ceylon_stays_backend npm run seed || true
+# 4. Database Seeding (Disabled to preserve user-created PostgreSQL data)
+# echo "🌱 Seeding initial platform data and verified accounts..."
+# docker exec -i ceylon_stays_backend npm run seed || true
 
 echo "========================================================"
 echo "🎉 DEPLOYMENT COMPLETE! Ceylon Stays is LIVE!"

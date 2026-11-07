@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
-import { createBusinessSchema, updateBusinessSchema } from '../utils/validation';
+import { updateBusinessSchema } from '../utils/validation';
 import { calculateDistanceKm, geocodeCity } from '../utils/geo';
-import { localStore } from '../services/store.service';
+
+// Deprecated in-memory reference retained for compatibility
+export const liveOwnerBusinesses: any[] = [];
 
 /**
  * @route GET /api/businesses/nearby
@@ -27,7 +29,7 @@ export const getNearbyBusinesses = async (req: Request, res: Response) => {
       }
     }
 
-    // 2. Fetch all active businesses with listings
+    // 2. Fetch all active businesses with listings from PostgreSQL
     const businesses = await prisma.business.findMany({
       where: type ? { type: type as any } : undefined,
       include: {
@@ -70,15 +72,11 @@ export const getNearbyBusinesses = async (req: Request, res: Response) => {
       totalResults: results.length,
       businesses: results,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Nearby Businesses Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching businesses' });
   }
 };
-
-
-// In-memory storage fallback for newly created owner businesses if DB has latency
-export let liveOwnerBusinesses: any[] = [];
 
 /**
  * @route POST /api/businesses
@@ -97,66 +95,29 @@ export const createBusiness = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized: User identity not found' });
     }
 
-    let dbBusiness;
-
-    try {
-      dbBusiness = await prisma.business.create({
-        data: {
-          ownerId: userId,
-          name,
-          type: (type || 'HOTEL').toUpperCase() as any,
-          description: description || '',
-          address,
-          latitude: Number(latitude) || 6.9271,
-          longitude: Number(longitude) || 79.8612,
-          imageUrls: imageUrls || [],
-        },
-        include: {
-          listings: true,
-        },
-      });
-    } catch (dbErr) {
-      console.warn('DB create business notice:', dbErr);
-    }
-
-    const newBusiness = dbBusiness || {
-      id: `biz-${Date.now()}`,
-      ownerId: userId,
-      name,
-      type: (type || 'HOTEL').toUpperCase(),
-      description: description || '',
-      address,
-      latitude: Number(latitude) || 6.9271,
-      longitude: Number(longitude) || 79.8612,
-      imageUrls: imageUrls || [],
-      createdAt: new Date().toISOString(),
-      listings: [],
-    };
-
-    // Always persist to localStore disk so it never disappears on restart
-    localStore.saveBusiness({
-      id: newBusiness.id,
-      ownerId: newBusiness.ownerId,
-      name: newBusiness.name,
-      type: newBusiness.type,
-      description: newBusiness.description,
-      address: newBusiness.address,
-      latitude: newBusiness.latitude,
-      longitude: newBusiness.longitude,
-      imageUrls: newBusiness.imageUrls,
-      createdAt: newBusiness.createdAt instanceof Date ? newBusiness.createdAt.toISOString() : String(newBusiness.createdAt),
-      updatedAt: new Date().toISOString(),
+    const newBusiness = await prisma.business.create({
+      data: {
+        ownerId: userId,
+        name,
+        type: (type || 'HOTEL').toUpperCase() as any,
+        description: description || '',
+        address,
+        latitude: Number(latitude) || 6.9271,
+        longitude: Number(longitude) || 79.8612,
+        imageUrls: imageUrls || [],
+      },
+      include: {
+        listings: true,
+      },
     });
-
-    liveOwnerBusinesses = [newBusiness, ...liveOwnerBusinesses];
 
     return res.status(201).json({
       message: 'Business created successfully',
       business: newBusiness,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create Business Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error creating business' });
   }
 };
 
@@ -171,41 +132,18 @@ export const getMyBusinesses = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized: User identity not found' });
     }
 
-    let dbBusinesses: any[] = [];
-    try {
-      dbBusinesses = await prisma.business.findMany({
-        where: { ownerId: userId },
-        include: {
-          listings: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (dbErr) {
-      console.warn('DB getMyBusinesses notice:', dbErr);
-    }
-
-    // Load persistent store businesses for this owner
-    const storedBusinesses = localStore.getBusinessesByOwner(userId).map((b) => ({
-      ...b,
-      listings: localStore.getListingsByBusiness(b.id),
-    }));
-
-    // Filter memory fallback strictly by the logged-in owner's userId
-    const userMemoryBusinesses = liveOwnerBusinesses.filter((b) => b.ownerId === userId);
-
-    const map = new Map();
-    [...dbBusinesses, ...storedBusinesses, ...userMemoryBusinesses].forEach((b) => {
-      if (!map.has(b.id)) {
-        map.set(b.id, b);
-      }
+    const businesses = await prisma.business.findMany({
+      where: { ownerId: userId },
+      include: {
+        listings: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const combined = Array.from(map.values());
-
-    return res.status(200).json({ businesses: combined });
-  } catch (error) {
+    return res.status(200).json({ businesses });
+  } catch (error: any) {
     console.error('Get My Businesses Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching businesses' });
   }
 };
 
@@ -217,39 +155,22 @@ export const getBusinessById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    let business: any = null;
-    try {
-      business = await prisma.business.findUnique({
-        where: { id },
-        include: {
-          owner: { select: { id: true, name: true, phone: true, email: true } },
-          listings: { where: { isActive: true } },
-        },
-      });
-    } catch (dbErr) {
-      console.warn('DB getBusinessById notice:', dbErr);
-    }
-
-    if (!business) {
-      const stored = localStore.getBusinessById(id);
-      if (stored) {
-        const owner = localStore.getUserById(stored.ownerId);
-        business = {
-          ...stored,
-          owner: owner ? { id: owner.id, name: owner.name, phone: owner.phone, email: owner.email } : undefined,
-          listings: localStore.getListingsByBusiness(id),
-        };
-      }
-    }
+    const business = await prisma.business.findUnique({
+      where: { id },
+      include: {
+        owner: { select: { id: true, name: true, phone: true, email: true } },
+        listings: { where: { isActive: true } },
+      },
+    });
 
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
 
     return res.status(200).json({ business });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get Business By Id Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error fetching business' });
   }
 };
 
@@ -266,18 +187,9 @@ export const updateBusiness = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     // 1. Verify business exists and belongs to logged-in owner
-    let existingBusiness: any = null;
-    try {
-      existingBusiness = await prisma.business.findUnique({
-        where: { id },
-      });
-    } catch (dbErr) {
-      console.warn('DB lookup on update:', dbErr);
-    }
-
-    if (!existingBusiness) {
-      existingBusiness = localStore.getBusinessById(id);
-    }
+    const existingBusiness = await prisma.business.findUnique({
+      where: { id },
+    });
 
     if (!existingBusiness) {
       return res.status(404).json({ error: 'Business not found' });
@@ -296,33 +208,22 @@ export const updateBusiness = async (req: Request, res: Response) => {
       });
     }
 
-    // 3. Update in DB if reachable
-    let updatedBusiness: any = null;
-    try {
-      updatedBusiness = await prisma.business.update({
-        where: { id },
-        data: validationResult.data,
-      });
-    } catch (dbErr) {
-      console.warn('DB update business notice:', dbErr);
-    }
-
-    const finalUpdated = updatedBusiness || {
-      ...existingBusiness,
-      ...validationResult.data,
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Update in localStore
-    localStore.saveBusiness(finalUpdated);
+    // 3. Update in PostgreSQL
+    const updatedBusiness = await prisma.business.update({
+      where: { id },
+      data: validationResult.data,
+      include: {
+        listings: true,
+      },
+    });
 
     return res.status(200).json({
       message: 'Business updated successfully',
-      business: finalUpdated,
+      business: updatedBusiness,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Update Business Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error updating business' });
   }
 };
 
@@ -338,18 +239,9 @@ export const deleteBusiness = async (req: Request, res: Response) => {
 
     const { id } = req.params;
 
-    let existingBusiness: any = null;
-    try {
-      existingBusiness = await prisma.business.findUnique({
-        where: { id },
-      });
-    } catch (dbErr) {
-      console.warn('DB lookup on delete:', dbErr);
-    }
-
-    if (!existingBusiness) {
-      existingBusiness = localStore.getBusinessById(id);
-    }
+    const existingBusiness = await prisma.business.findUnique({
+      where: { id },
+    });
 
     if (!existingBusiness) {
       return res.status(404).json({ error: 'Business not found' });
@@ -359,19 +251,13 @@ export const deleteBusiness = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden: You do not own this business' });
     }
 
-    try {
-      await prisma.business.delete({
-        where: { id },
-      });
-    } catch (dbErr) {
-      console.warn('DB delete business notice:', dbErr);
-    }
-
-    localStore.deleteBusiness(id);
+    await prisma.business.delete({
+      where: { id },
+    });
 
     return res.status(200).json({ message: 'Business deleted successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete Business Error:', error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ error: 'Internal Server Error', message: error?.message || 'Database error deleting business' });
   }
 };

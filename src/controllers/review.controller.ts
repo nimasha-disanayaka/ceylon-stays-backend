@@ -1,16 +1,14 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
-import { localStore } from '../services/store.service';
 
-// Global in-memory storage fallback for newly submitted mobile reviews to guarantee instant live update
-export let liveSubmittedReviews: any[] = [];
+// Deprecated in-memory reference retained for backward compatibility
+export const liveSubmittedReviews: any[] = [];
 
 // Create a guest review
 export const createReview = async (req: Request, res: Response) => {
   const { bookingId, rating, comment, authorName: bodyAuthorName } = req.body || {};
   try {
     const authorId = req.user?.userId;
-    const authorName = bodyAuthorName || (req.user as any)?.name || 'John M.';
 
     if (!rating) {
       return res.status(400).json({ error: 'rating is required' });
@@ -20,155 +18,119 @@ export const createReview = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Rating must be between 1 and 5' });
     }
 
-    // Try finding valid booking in DB
-    let targetBooking;
-    try {
+    // Find valid booking in PostgreSQL
+    let targetBooking = await prisma.booking.findFirst({
+      where: bookingId ? { id: bookingId } : (authorId ? { foreignerId: authorId } : {}),
+      include: {
+        listing: { include: { business: true } },
+        foreigner: true,
+      },
+    });
+
+    if (!targetBooking) {
       targetBooking = await prisma.booking.findFirst({
-        where: bookingId ? { id: bookingId } : {},
-        include: { listing: { include: { business: true } } },
+        include: {
+          listing: { include: { business: true } },
+          foreigner: true,
+        },
       });
-
-      if (!targetBooking) {
-        targetBooking = await prisma.booking.findFirst({
-          include: { listing: { include: { business: true } } },
-        });
-      }
-    } catch (err) {
-      console.warn('Booking lookup notice:', err);
     }
 
-    let reviewResult;
-
-    if (targetBooking) {
-      try {
-        reviewResult = await prisma.review.upsert({
-          where: { bookingId: targetBooking.id },
-          update: {
-            rating: Number(rating),
-            comment: comment || 'Good',
-          },
-          create: {
-            bookingId: targetBooking.id,
-            authorId: authorId || targetBooking.foreignerId,
-            rating: Number(rating),
-            comment: comment || 'Good',
-          },
-        });
-      } catch (upsertErr) {
-        console.warn('Review upsert notice:', upsertErr);
-      }
+    if (!targetBooking) {
+      return res.status(404).json({ error: 'No booking found to attach review to' });
     }
 
-    // Store in liveSubmittedReviews list so it immediately appears on owner review page
-    const finalAuthorName = (authorName || 'John M.').trim();
-    const nameParts = finalAuthorName.split(' ');
-    const initials = nameParts.length > 1
-      ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-      : `${finalAuthorName[0]}${finalAuthorName[1] || 'M'}`.toUpperCase();
+    const reviewResult = await prisma.review.upsert({
+      where: { bookingId: targetBooking.id },
+      update: {
+        rating: Number(rating),
+        comment: comment || '',
+      },
+      create: {
+        bookingId: targetBooking.id,
+        authorId: authorId || targetBooking.foreignerId,
+        rating: Number(rating),
+        comment: comment || '',
+      },
+    });
 
-    const newLiveReview = {
-      id: reviewResult?.id || `rev-live-${Date.now()}`,
-      initials,
-      authorName: finalAuthorName,
-      businessName: targetBooking?.listing?.business?.name || 'Property',
-      rating: Number(rating),
-      comment: comment || '',
-      reply: null,
-      createdAt: new Date(),
-    };
-
-    // Prepend to live array
-    liveSubmittedReviews = [newLiveReview, ...liveSubmittedReviews.filter(r => r.id !== newLiveReview.id)];
-
-    return res.status(201).json({ message: 'Review created successfully', review: newLiveReview });
-  } catch (error: any) {
-    console.error('Error creating review:', error);
-
-    const finalAuthorName = (bodyAuthorName || (req.user as any)?.name || 'Guest').trim();
+    const finalAuthorName = (bodyAuthorName || targetBooking.foreigner?.name || (req.user as any)?.name || 'Guest').trim();
     const nameParts = finalAuthorName.split(' ');
     const initials = nameParts.length > 1
       ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
       : `${finalAuthorName[0]}${finalAuthorName[1] || 'G'}`.toUpperCase();
 
-    // Fallback store
-    const fallbackReview = {
-      id: `rev-fallback-${Date.now()}`,
+    const formattedReview = {
+      id: reviewResult.id,
       initials,
       authorName: finalAuthorName,
-      businessName: 'Property',
-      rating: Number(rating) || 5,
-      comment: comment || '',
-      reply: null,
-      createdAt: new Date(),
+      businessName: targetBooking.listing?.business?.name || 'Property',
+      rating: Number(reviewResult.rating),
+      comment: reviewResult.comment,
+      reply: reviewResult.reply || null,
+      createdAt: reviewResult.createdAt,
     };
-    liveSubmittedReviews = [fallbackReview, ...liveSubmittedReviews];
 
-    return res.status(201).json({ message: 'Review submitted successfully', review: fallbackReview });
+    return res.status(201).json({
+      message: 'Review created successfully',
+      review: formattedReview,
+    });
+  } catch (error: any) {
+    console.error('Error creating review:', error);
+    return res.status(500).json({ error: 'Failed to create review', message: error?.message || 'Database error creating review' });
   }
 };
 
-// Get reviews for property owner dashboard (matches UI mockup 1)
+// Get reviews for property owner dashboard
 export const getOwnerReviews = async (req: Request, res: Response) => {
   try {
     const ownerId = req.user?.userId;
 
-    let dbReviewsFormatted: any[] = [];
-    try {
-      const dbReviews = await prisma.review.findMany({
-        where: ownerId
-          ? {
-              booking: {
-                listing: {
-                  business: {
-                    ownerId,
-                  },
+    const dbReviews = await prisma.review.findMany({
+      where: ownerId
+        ? {
+            booking: {
+              listing: {
+                business: {
+                  ownerId,
                 },
               },
-            }
-          : undefined,
-        include: {
-          booking: {
-            include: {
-              listing: { include: { business: true } },
-              foreigner: true,
             },
+          }
+        : undefined,
+      include: {
+        booking: {
+          include: {
+            listing: { include: { business: true } },
+            foreigner: true,
           },
         },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      dbReviewsFormatted = dbReviews.map((r: any) => {
-        const authorName = r.booking?.foreigner?.name || 'Guest';
-        const nameParts = authorName.trim().split(' ');
-        const initials = nameParts.length > 1
-          ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-          : `${authorName[0]}${authorName[1] || 'G'}`.toUpperCase();
-
-        return {
-          id: r.id,
-          initials,
-          authorName,
-          businessName: r.booking?.listing?.business?.name || 'My Property',
-          rating: r.rating,
-          comment: r.comment,
-          reply: r.reply || null,
-          createdAt: r.createdAt,
-        };
-      });
-    } catch (dbErr) {
-      console.warn('Prisma review fetch warning:', dbErr);
-    }
-
-    const storedReviews = ownerId ? localStore.getReviewsByOwner(ownerId) : [];
-    const map = new Map();
-    [...dbReviewsFormatted, ...storedReviews, ...liveSubmittedReviews].forEach((r) => {
-      if (!map.has(r.id)) map.set(r.id, r);
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const combinedReviews = Array.from(map.values());
-    const totalReviews = combinedReviews.length;
-    const awaitingReply = combinedReviews.filter((r) => !r.reply).length;
-    const avgSum = combinedReviews.reduce((acc, r) => acc + r.rating, 0);
+    const reviews = dbReviews.map((r: any) => {
+      const authorName = r.booking?.foreigner?.name || 'Guest';
+      const nameParts = authorName.trim().split(' ');
+      const initials = nameParts.length > 1
+        ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
+        : `${authorName[0]}${authorName[1] || 'G'}`.toUpperCase();
+
+      return {
+        id: r.id,
+        initials,
+        authorName,
+        businessName: r.booking?.listing?.business?.name || 'My Property',
+        rating: r.rating,
+        comment: r.comment,
+        reply: r.reply || null,
+        createdAt: r.createdAt,
+      };
+    });
+
+    const totalReviews = reviews.length;
+    const awaitingReply = reviews.filter((r) => !r.reply).length;
+    const avgSum = reviews.reduce((acc, r) => acc + r.rating, 0);
     const averageRating = totalReviews > 0 ? (avgSum / totalReviews).toFixed(1) : '0.0';
 
     return res.status(200).json({
@@ -177,11 +139,11 @@ export const getOwnerReviews = async (req: Request, res: Response) => {
         totalReviews,
         awaitingReply,
       },
-      reviews: combinedReviews,
+      reviews,
     });
   } catch (error: any) {
     console.error('Error fetching owner reviews:', error);
-    return res.status(500).json({ error: 'Failed to fetch owner reviews' });
+    return res.status(500).json({ error: 'Failed to fetch owner reviews', message: error?.message || 'Database error fetching owner reviews' });
   }
 };
 
@@ -195,29 +157,15 @@ export const replyToReview = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Reply text is required' });
     }
 
-    // Update in-memory liveSubmittedReviews if present for matching ID
-    if (liveSubmittedReviews.length > 0) {
-      const liveRev = liveSubmittedReviews.find(r => r.id === id);
-      if (liveRev) {
-        liveRev.reply = reply.trim();
-      }
-    }
+    const review = await prisma.review.update({
+      where: { id },
+      data: { reply: reply.trim() },
+    });
 
-    // Update localStore
-    localStore.replyToReview(id, reply.trim());
-
-    try {
-      const review = await prisma.review.update({
-        where: { id },
-        data: { reply: reply.trim() },
-      });
-      return res.status(200).json({ message: 'Reply posted successfully', review });
-    } catch (err) {
-      return res.status(200).json({ message: 'Reply posted successfully', review: { id, reply: reply.trim() } });
-    }
+    return res.status(200).json({ message: 'Reply posted successfully', review });
   } catch (error: any) {
     console.error('Error replying to review:', error);
-    return res.status(500).json({ error: 'Failed to reply to review' });
+    return res.status(500).json({ error: 'Failed to reply to review', message: error?.message || 'Database error replying to review' });
   }
 };
 
@@ -225,60 +173,32 @@ export const replyToReview = async (req: Request, res: Response) => {
 export const getListingReviews = async (req: Request, res: Response) => {
   const { listingId } = req.params;
   try {
-    let formattedDb: any[] = [];
-    try {
-      const dbReviews = await prisma.review.findMany({
-        where: {
-          booking: {
-            listingId: listingId,
+    const dbReviews = await prisma.review.findMany({
+      where: {
+        booking: {
+          listingId: listingId,
+        },
+      },
+      include: {
+        booking: {
+          include: {
+            foreigner: true,
+            listing: { include: { business: true } },
           },
         },
-        include: {
-          booking: {
-            include: {
-              foreigner: true,
-              listing: { include: { business: true } },
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      formattedDb = dbReviews.map((r: any) => ({
-        id: r.id,
-        listingId,
-        authorName: r.booking?.foreigner?.name || 'Traveler Guest',
-        rating: r.rating,
-        comment: r.comment,
-        reply: r.reply || null,
-        createdAt: r.createdAt,
-      }));
-    } catch (dbErr) {
-      console.warn('DB listing reviews notice:', dbErr);
-    }
-
-    // Filter live submitted reviews
-    const matchingLive = liveSubmittedReviews
-      .filter((r: any) => r.listingId === listingId || !r.listingId)
-      .map((r: any) => ({
-        id: r.id,
-        listingId: listingId,
-        authorName: r.authorName || 'Traveler Guest',
-        rating: r.rating,
-        comment: r.comment,
-        reply: r.reply || null,
-        createdAt: r.createdAt,
-      }));
-
-    // Combine and deduplicate
-    const combinedMap = new Map();
-    [...matchingLive, ...formattedDb].forEach((rev) => {
-      if (!combinedMap.has(rev.id)) {
-        combinedMap.set(rev.id, rev);
-      }
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const reviews = Array.from(combinedMap.values());
+    const reviews = dbReviews.map((r: any) => ({
+      id: r.id,
+      listingId,
+      authorName: r.booking?.foreigner?.name || 'Traveler Guest',
+      rating: r.rating,
+      comment: r.comment,
+      reply: r.reply || null,
+      createdAt: r.createdAt,
+    }));
 
     const totalReviews = reviews.length;
     const avgSum = reviews.reduce((sum, r) => sum + r.rating, 0);
@@ -293,9 +213,9 @@ export const getListingReviews = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('Error fetching listing reviews:', err);
-    return res.status(200).json({
-      summary: { averageRating: 0, totalReviews: 0 },
-      reviews: [],
+    return res.status(500).json({
+      error: 'Failed to fetch reviews',
+      message: err?.message || 'Database error fetching listing reviews',
     });
   }
 };

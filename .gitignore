@@ -9,3 +9,10 @@ yarn-error.log*
 .DS_Store
 uploads/*
 !uploads/.gitkeep
+
+# Sensitive Backups & Quarantine Data
+data/*.backup*.json
+data/*quarantine*.json
+*.dump
+*.sql
+
