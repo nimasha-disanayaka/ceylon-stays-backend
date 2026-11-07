@@ -1,0 +1,258 @@
+{
+  "users": [
+    {
+      "id": "user-owner-disanayak",
+      "email": "disanayakanimasha548@gmail.com",
+      "passwordHash": "abcd123",
+      "name": "imasha",
+      "phone": "0123569858",
+      "role": "OWNER",
+      "createdAt": "2026-11-07T06:30:00.000Z",
+      "updatedAt": "2026-11-07T06:30:00.000Z"
+    },
+    {
+      "id": "user-owner-default",
+      "email": "nimuu1449disanayaka@gmail.com",
+      "passwordHash": "$2a$10$w09Z4z1pC0h5kR1wDq9mVuYhR3v3eSg.p4c2mI1F0Q1p2s3t4u5v.",
+      "name": "Nimasha Disanayaka",
+      "phone": "+94771234567",
+      "role": "OWNER",
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "user-owner-1",
+      "email": "owner@gmail.com",
+      "passwordHash": "$2a$10$w09Z4z1pC0h5kR1wDq9mVuYhR3v3eSg.p4c2mI1F0Q1p2s3t4u5v.",
+      "name": "Nimasha Disanayaka",
+      "phone": "+94771234567",
+      "role": "OWNER",
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "user-traveler-default",
+      "email": "traveler@gmail.com",
+      "passwordHash": "$2a$10$w09Z4z1pC0h5kR1wDq9mVuYhR3v3eSg.p4c2mI1F0Q1p2s3t4u5v.",
+      "name": "John Traveler",
+      "phone": "+14155552671",
+      "role": "FOREIGNER",
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "user-traveler-nimu",
+      "email": "imashaad99226@gmail.com",
+      "passwordHash": "password123",
+      "name": "Nimu",
+      "phone": "+94771234567",
+      "role": "FOREIGNER",
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T08:59:12.712Z"
+    }
+  ],
+  "businesses": [
+    {
+      "id": "f5e99f74-3b87-41e3-84b5-069a0c995fe4",
+      "ownerId": "0277b24e-45ea-4ec1-bed4-c4043eba351a",
+      "name": "gurupokuna beach hotel",
+      "type": "HOTEL",
+      "description": "gooood envirinmnet withs ea",
+      "address": "gurupokuna hungama",
+      "latitude": 5.9483,
+      "longitude": 80.4716,
+      "imageUrls": [
+        "https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?auto=format&fit=crop&w=800&q=80"
+      ],
+      "createdAt": "2026-11-07T06:48:18.444Z",
+      "updatedAt": "2026-11-07T06:48:18.526Z"
+    },
+    {
+      "id": "biz-1794032431892",
+      "ownerId": "user-owner-1",
+      "name": "mirissa",
+      "type": "HOTEL",
+      "description": "",
+      "address": "sri lanka",
+      "latitude": 5.9483,
+      "longitude": 80.4716,
+      "imageUrls": [
+        "https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=800&q=80"
+      ],
+      "createdAt": "2026-11-07T06:20:31.892Z",
+      "updatedAt": "2026-11-07T06:20:31.892Z"
+    },
+    {
+      "id": "biz-mirissa-luxury",
+      "ownerId": "user-owner-1",
+      "name": "Mirissa Luxury Hotel",
+      "type": "HOTEL",
+      "description": "Luxury beachfront hotel in Mirissa with ocean view rooms.",
+      "address": "Beach Road, Mirissa, Sri Lanka",
+      "latitude": 5.9483,
+      "longitude": 80.4716,
+      "imageUrls": [
+        "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
+      ],
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "biz-cinnamon-citadel",
+      "ownerId": "user-owner-1",
+      "name": "Cinnamon Citadel Kandy",
+      "type": "HOTEL",
+      "description": "Riverside luxury resort in the hill capital of Kandy.",
+      "address": "Kandy, Sri Lanka",
+      "latitude": 7.2906,
+      "longitude": 80.6337,
+      "imageUrls": [
+        "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80"
+      ],
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    }
+  ],
+  "listings": [
+    {
+      "id": "d3ffb3cf-19a3-40ff-a3d9-a9c37f507c36",
+      "businessId": "f5e99f74-3b87-41e3-84b5-069a0c995fe4",
+      "name": "Ad",
+      "description": "goood ",
+      "pricePerNight": 85,
+      "maxGuests": 2,
+      "amenities": [
+        "WiFi",
+        "AC",
+        "Sea View"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-07T06:48:41.438Z",
+      "updatedAt": "2026-11-07T06:48:41.449Z"
+    },
+    {
+      "id": "list-1794032447476",
+      "businessId": "biz-1794032431892",
+      "name": "add",
+      "description": "good",
+      "pricePerNight": 85,
+      "maxGuests": 2,
+      "amenities": [
+        "WiFi",
+        "AC",
+        "Sea View"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-07T06:20:47.477Z",
+      "updatedAt": "2026-11-07T06:20:47.483Z"
+    },
+    {
+      "id": "list-delux-1",
+      "businessId": "biz-mirissa-luxury",
+      "name": "delux",
+      "description": "King bed with private balcony and panoramic ocean view",
+      "pricePerNight": 85,
+      "maxGuests": 2,
+      "amenities": [
+        "WiFi",
+        "AC",
+        "Sea View"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "list-delux-river-2",
+      "businessId": "biz-cinnamon-citadel",
+      "name": "delux river",
+      "description": "Riverside suite with king bed and balcony",
+      "pricePerNight": 103,
+      "maxGuests": 2,
+      "amenities": [
+        "WiFi",
+        "AC",
+        "Sea View"
+      ],
+      "isActive": true,
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "updatedAt": "2026-11-07T00:00:00.000Z"
+    }
+  ],
+  "bookings": [
+    {
+      "id": "aeb2f1fc-9c8a-4168-92b6-a4a0d1e37eac",
+      "foreignerId": "af4a3103-24d1-4e2a-8721-58d93a044528",
+      "listingId": "d3ffb3cf-19a3-40ff-a3d9-a9c37f507c36",
+      "checkIn": "2026-12-07T14:00:00.000Z",
+      "checkOut": "2026-12-31T11:00:00.000Z",
+      "totalPrice": 2040,
+      "status": "CONFIRMED",
+      "paymentStatus": "CAPTURED",
+      "createdAt": "2026-11-07T09:41:55.150Z",
+      "updatedAt": "2026-11-07T09:41:55.150Z"
+    },
+    {
+      "id": "book-MW67FR5K",
+      "foreignerId": "ba7dc026-361d-4460-be04-1b5aa22697b0",
+      "listingId": "list-delux-1",
+      "checkIn": "2026-11-20T14:00:00.000Z",
+      "checkOut": "2026-11-23T11:00:00.000Z",
+      "totalPrice": 255,
+      "status": "CANCELLED",
+      "paymentStatus": "REFUNDED",
+      "createdAt": "2026-11-07T09:32:14.264Z",
+      "updatedAt": "2026-11-07T09:32:16.398Z"
+    },
+    {
+      "id": "book-MW65A8SC",
+      "foreignerId": "af4a3103-24d1-4e2a-8721-58d93a044528",
+      "listingId": "list-delux-river-2",
+      "checkIn": "2026-11-07T14:00:00.000Z",
+      "checkOut": "2026-11-11T11:00:00.000Z",
+      "totalPrice": 412,
+      "status": "CONFIRMED",
+      "paymentStatus": "CAPTURED",
+      "createdAt": "2026-11-07T08:31:57.948Z",
+      "updatedAt": "2026-11-07T08:31:57.948Z"
+    },
+    {
+      "id": "book-MW658UDH",
+      "foreignerId": "af4a3103-24d1-4e2a-8721-58d93a044528",
+      "listingId": "list-delux-river-2",
+      "checkIn": "2026-11-07T14:00:00.000Z",
+      "checkOut": "2026-11-11T11:00:00.000Z",
+      "totalPrice": 412,
+      "status": "CONFIRMED",
+      "paymentStatus": "CAPTURED",
+      "createdAt": "2026-11-07T08:30:52.613Z",
+      "updatedAt": "2026-11-07T08:30:52.613Z"
+    },
+    {
+      "id": "book-MW64GM5U",
+      "foreignerId": "af4a3103-24d1-4e2a-8721-58d93a044528",
+      "listingId": "list-delux-1",
+      "checkIn": "2026-11-07T14:00:00.000Z",
+      "checkOut": "2026-11-11T11:00:00.000Z",
+      "totalPrice": 340,
+      "status": "CONFIRMED",
+      "paymentStatus": "CAPTURED",
+      "createdAt": "2026-11-07T08:08:55.602Z",
+      "updatedAt": "2026-11-07T08:08:55.602Z"
+    },
+    {
+      "id": "21835b51-924a-49cd-b39d-333295460199",
+      "foreignerId": "af4a3103-24d1-4e2a-8721-58d93a044528",
+      "listingId": "9d010ffa-a478-4a28-a75e-a0055eadf954",
+      "checkIn": "2026-11-07T14:00:00.000Z",
+      "checkOut": "2026-11-11T11:00:00.000Z",
+      "totalPrice": 412,
+      "status": "CONFIRMED",
+      "paymentStatus": "CAPTURED",
+      "createdAt": "2026-11-07T08:08:24.325Z",
+      "updatedAt": "2026-11-07T08:08:24.325Z"
+    }
+  ],
+  "reviews": [],
+  "blockedDates": []
+}

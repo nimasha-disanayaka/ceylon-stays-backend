@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createListing,
+  getMyListings,
   getListingsByBusiness,
   searchListings,
   getListingAvailability,
@@ -13,6 +14,9 @@ import {
 import { authenticate, authorize } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Owner Protected Routes (Must be declared before parameterized routes)
+router.get('/my-listings', authenticate, authorize(['OWNER']), getMyListings);
 
 // Public Traveler Routes
 router.get('/', searchListings);

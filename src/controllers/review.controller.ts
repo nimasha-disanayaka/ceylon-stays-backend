@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { localStore } from '../services/store.service';
 
 // Global in-memory storage fallback for newly submitted mobile reviews to guarantee instant live update
 export let liveSubmittedReviews: any[] = [];
@@ -69,9 +70,9 @@ export const createReview = async (req: Request, res: Response) => {
       id: reviewResult?.id || `rev-live-${Date.now()}`,
       initials,
       authorName: finalAuthorName,
-      businessName: targetBooking?.listing?.business?.name || 'Mirissa Luxury Hotel',
+      businessName: targetBooking?.listing?.business?.name || 'Property',
       rating: Number(rating),
-      comment: comment || 'Good',
+      comment: comment || '',
       reply: null,
       createdAt: new Date(),
     };
@@ -83,20 +84,20 @@ export const createReview = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error creating review:', error);
 
-    const finalAuthorName = (bodyAuthorName || (req.user as any)?.name || 'John M.').trim();
+    const finalAuthorName = (bodyAuthorName || (req.user as any)?.name || 'Guest').trim();
     const nameParts = finalAuthorName.split(' ');
     const initials = nameParts.length > 1
       ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
-      : `${finalAuthorName[0]}${finalAuthorName[1] || 'M'}`.toUpperCase();
+      : `${finalAuthorName[0]}${finalAuthorName[1] || 'G'}`.toUpperCase();
 
     // Fallback store
     const fallbackReview = {
       id: `rev-fallback-${Date.now()}`,
       initials,
       authorName: finalAuthorName,
-      businessName: 'Mirissa Luxury Hotel',
+      businessName: 'Property',
       rating: Number(rating) || 5,
-      comment: comment || 'Good',
+      comment: comment || '',
       reply: null,
       createdAt: new Date(),
     };
@@ -158,10 +159,17 @@ export const getOwnerReviews = async (req: Request, res: Response) => {
       console.warn('Prisma review fetch warning:', dbErr);
     }
 
-    const totalReviews = dbReviewsFormatted.length;
-    const awaitingReply = dbReviewsFormatted.filter((r) => !r.reply).length;
-    const avgSum = dbReviewsFormatted.reduce((acc, r) => acc + r.rating, 0);
-    const averageRating = totalReviews > 0 ? (avgSum / totalReviews).toFixed(1) : '5.0';
+    const storedReviews = ownerId ? localStore.getReviewsByOwner(ownerId) : [];
+    const map = new Map();
+    [...dbReviewsFormatted, ...storedReviews, ...liveSubmittedReviews].forEach((r) => {
+      if (!map.has(r.id)) map.set(r.id, r);
+    });
+
+    const combinedReviews = Array.from(map.values());
+    const totalReviews = combinedReviews.length;
+    const awaitingReply = combinedReviews.filter((r) => !r.reply).length;
+    const avgSum = combinedReviews.reduce((acc, r) => acc + r.rating, 0);
+    const averageRating = totalReviews > 0 ? (avgSum / totalReviews).toFixed(1) : '0.0';
 
     return res.status(200).json({
       summary: {
@@ -169,7 +177,7 @@ export const getOwnerReviews = async (req: Request, res: Response) => {
         totalReviews,
         awaitingReply,
       },
-      reviews: dbReviewsFormatted,
+      reviews: combinedReviews,
     });
   } catch (error: any) {
     console.error('Error fetching owner reviews:', error);
@@ -195,13 +203,8 @@ export const replyToReview = async (req: Request, res: Response) => {
       }
     }
 
-    // Handle demo mock ID
-    if (id.startsWith('demo-rev')) {
-      return res.status(200).json({
-        message: 'Reply saved successfully',
-        review: { id, reply },
-      });
-    }
+    // Update localStore
+    localStore.replyToReview(id, reply.trim());
 
     try {
       const review = await prisma.review.update({
@@ -210,7 +213,7 @@ export const replyToReview = async (req: Request, res: Response) => {
       });
       return res.status(200).json({ message: 'Reply posted successfully', review });
     } catch (err) {
-      return res.status(200).json({ message: 'Reply posted successfully', review: { id, reply } });
+      return res.status(200).json({ message: 'Reply posted successfully', review: { id, reply: reply.trim() } });
     }
   } catch (error: any) {
     console.error('Error replying to review:', error);
@@ -277,52 +280,21 @@ export const getListingReviews = async (req: Request, res: Response) => {
 
     const reviews = Array.from(combinedMap.values());
 
-    // Curated high quality baseline reviews if no reviews submitted yet
-    const fallbackReviews = [
-      {
-        id: `sample-rev-1-${listingId}`,
-        listingId,
-        authorName: 'Sophie Van Der Berg',
-        rating: 5,
-        comment: 'Absolutely magical stay! The views were breathtaking, spotless rooms, and the host went above and beyond with local travel tips.',
-        reply: 'Thank you so much Sophie! It was an absolute pleasure hosting you.',
-        createdAt: new Date(Date.now() - 86400000 * 3),
-      },
-      {
-        id: `sample-rev-2-${listingId}`,
-        listingId,
-        authorName: 'Michael Chen',
-        rating: 5,
-        comment: 'Great value for money. Very quiet and relaxing after a long day of sightseeing. High-speed WiFi worked flawlessly.',
-        reply: null,
-        createdAt: new Date(Date.now() - 86400000 * 7),
-      },
-      {
-        id: `sample-rev-3-${listingId}`,
-        listingId,
-        authorName: 'Elena Rostova',
-        rating: 4,
-        comment: 'Very cozy ambiance and attentive staff. Swimming pool was clean and refreshing. Highly recommended!',
-        reply: "Thanks Elena! We're glad you enjoyed the pool and relaxing atmosphere.",
-        createdAt: new Date(Date.now() - 86400000 * 14),
-      },
-    ];
-
-    const finalReviews = reviews.length > 0 ? reviews : fallbackReviews;
-    const avgSum = finalReviews.reduce((sum, r) => sum + r.rating, 0);
-    const averageRating = (avgSum / finalReviews.length).toFixed(1);
+    const totalReviews = reviews.length;
+    const avgSum = reviews.reduce((sum, r) => sum + r.rating, 0);
+    const averageRating = totalReviews > 0 ? (avgSum / totalReviews).toFixed(1) : '0.0';
 
     return res.status(200).json({
       summary: {
-        averageRating: Number(averageRating) || 4.8,
-        totalReviews: finalReviews.length,
+        averageRating: Number(averageRating),
+        totalReviews,
       },
-      reviews: finalReviews,
+      reviews,
     });
   } catch (err: any) {
     console.error('Error fetching listing reviews:', err);
     return res.status(200).json({
-      summary: { averageRating: 4.8, totalReviews: 3 },
+      summary: { averageRating: 0, totalReviews: 0 },
       reviews: [],
     });
   }

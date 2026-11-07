@@ -33,7 +33,7 @@ export const updateBusinessSchema = createBusinessSchema.partial();
 
 // --- LISTING SCHEMAS ---
 export const createListingSchema = z.object({
-  businessId: z.string().uuid({ message: 'Valid Business ID is required' }),
+  businessId: z.string().min(1, { message: 'Business ID is required' }),
   name: z.string().min(2, { message: 'Listing name must be at least 2 characters long' }),
   description: z.string().optional(),
   pricePerNight: z.number().positive({ message: 'Price per night must be positive' }),
@@ -64,9 +64,9 @@ export const updateBookingStatusSchema = z.object({
 // --- BLOCKED DATE SCHEMA ---
 export const createBlockedDateSchema = z
   .object({
-    listingId: z.string().uuid({ message: 'Valid Listing ID is required' }),
-    startDate: z.string().datetime({ message: 'Valid Start ISO Date string is required' }),
-    endDate: z.string().datetime({ message: 'Valid End ISO Date string is required' }),
+    listingId: z.string().min(1, { message: 'Listing ID is required' }),
+    startDate: z.string().min(1, { message: 'Valid Start Date is required' }),
+    endDate: z.string().min(1, { message: 'Valid End Date is required' }),
     reason: z.string().optional(),
   })
   .refine((data) => new Date(data.endDate) > new Date(data.startDate), {
